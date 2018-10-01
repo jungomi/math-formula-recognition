@@ -3,6 +3,7 @@ import sys
 import os
 import xml.etree.ElementTree as ET
 import numpy as np
+from skimage.io import imsave
 from skimage.draw import line
 import scipy.ndimage as ndimage
 
