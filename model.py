@@ -160,11 +160,11 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         C = low_res.size(1)
         C_prime = high_res.size(1)
-        gru2_input_size = C + C_prime
+        context_size = C + C_prime
         self.embedding = nn.Embedding(num_classes, embedding_dim)
         self.gru1 = nn.GRU(input_size=embedding_dim,
                            hidden_size=hidden_size, batch_first=True)
-        self.gru2 = nn.GRU(input_size=gru2_input_size,
+        self.gru2 = nn.GRU(input_size=context_size,
                            hidden_size=hidden_size, batch_first=True)
         # L = H * W
         low_res_attn_size = low_res.size(2) * low_res.size(3)
@@ -175,6 +175,9 @@ class Decoder(nn.Module):
         self.coverage_attn_high = CoverageAttention(
             C_prime, decoder_conv_filters,
             attn_size=high_res_attn_size, kernel_size=7)
+        self.W_o = nn.Parameter(torch.randn((num_classes, embedding_dim)))
+        self.W_s = nn.Parameter(torch.randn((embedding_dim, hidden_size)))
+        self.W_c = nn.Parameter(torch.randn((embedding_dim, context_size)))
         self.low_res = low_res
         self.high_res = high_res
         self.hidden_size = hidden_size
@@ -185,6 +188,13 @@ class Decoder(nn.Module):
     # TODO: Figure out what to do with the new hidden state returned from the
     # GRUs. Apparently they aren't kept, since the new hidden state of the
     # decoder is the output of the second GRU.
+    #
+    # Unsqueeze and squeeze are used to add and remove the seq_len dimension,
+    # which is always 1 since there only the previous symbol is provided, not
+    # a sequence.
+    # The inputs that are multiplied by the weights are transposed to get
+    # (m x batch_size) instead of (batch_size x m). The result of the
+    # multiplication is tranposed back.
     def forward(self, x, hidden):
         embedded = self.embedding(x)
         pred, _ = self.gru1(embedded, hidden)
@@ -192,4 +202,10 @@ class Decoder(nn.Module):
         context_high = self.coverage_attn_high(self.high_res, pred)
         context = torch.cat((context_low, context_high), dim=1)
         new_hidden, _ = self.gru2(context.unsqueeze(1), pred.transpose(0, 1))
-        return pred, new_hidden.transpose(0, 1)
+        w_s = torch.matmul(self.W_s, new_hidden.squeeze(1).t()).t()
+        w_c = torch.matmul(self.W_c, context.t()).t()
+        # TODO: Maxout this
+        out = embedded.squeeze(1) + w_s + w_c
+        out = torch.matmul(self.W_o, out.t()).t()
+        out = torch.softmax(out, dim=1)
+        return out, new_hidden.transpose(0, 1)
