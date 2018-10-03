@@ -9,6 +9,12 @@ depth = 16
 multi_block_depth = depth // 2
 growth_rate = 24
 
+n = 256
+n_prime = 512
+decoder_conv_filters = 256
+gru_hidden_size = 256
+embedding_dim = 256
+
 
 class BottleneckBlock(nn.Module):
     def __init__(self, input_size, growth_rate):
@@ -96,3 +102,94 @@ class Encoder(nn.Module):
         out_B = self.multi_block(out_before_trans2)
 
         return out_A, out_B
+
+
+class CoverageAttention(nn.Module):
+    # input_size = C
+    # output_size = q
+    # attn_size = L = H * W
+    def __init__(self, input_size, output_size, attn_size, kernel_size):
+        super(CoverageAttention, self).__init__()
+        self.alpha = torch.zeros((1, attn_size))
+        self.conv = nn.Conv2d(input_size, output_size, kernel_size=kernel_size)
+        self.fc = nn.Linear(attn_size, attn_size * output_size)
+        self.U_pred = nn.Parameter(torch.randn((n_prime, n)))
+        self.U_a = nn.Parameter(torch.randn((n_prime, input_size)))
+        self.U_f = nn.Parameter(torch.randn((n_prime, output_size)))
+        self.nu_attn = nn.Parameter(torch.randn(n_prime))
+        self.input_size = input_size
+        self.output_size = output_size
+
+    def forward(self, x, pred):
+        batch_size = x.size(0)
+        # TODO: Use the convolutional layer.
+        # The linear layer is just to make it work until I figure out the Conv.
+        out_f = self.fc(self.alpha.sum(0)).view(
+            1, -1, self.output_size).expand(batch_size, -1, -1)
+        # Get rid of seq_len (dim 1, which is always 1)
+        # Transpose to get input_size x batch_size to multiply
+        pred_view = pred.squeeze(1).t()
+        u_pred = torch.matmul(self.U_pred, pred_view)
+        # Transpose back to get batch_size x n_prime
+        u_pred = u_pred.t()
+        # Change the dimensions
+        # From: (batch_size x C x H x W)
+        # To: (batch_size x C x L)
+        a = x.view(batch_size, x.size(1), -1)
+        u_a = torch.matmul(self.U_a, a)
+        u_f = torch.matmul(self.U_f, out_f.transpose(1, 2))
+        # u_pred is expanded from (batch_size x n_prime)
+        # to (batch_size x n_prime x L) because there are L components to which
+        # the same u_pred is added.
+        u_pred_expanded = u_pred.unsqueeze(2).expand_as(u_a)
+        tan_res = torch.tanh(u_pred_expanded + u_a + u_f)
+        e_t = torch.matmul(self.nu_attn, tan_res)
+        alpha_t = torch.softmax(e_t, dim=1)
+        self.alpha = torch.cat((self.alpha, alpha_t), dim=0)
+        # alpha_t: (batch_size x L)
+        # a: (batch_size x C x L) but need (C x batch_size x L) for
+        # element-wise multiplication. So transpose them.
+        cA_t_L = alpha_t * a.transpose(0, 1)
+        # Transpose back
+        return cA_t_L.transpose(0, 1).sum(2)
+
+
+class Decoder(nn.Module):
+    def __init__(self, num_classes, low_res, high_res,
+                 hidden_size=gru_hidden_size, embedding_dim=embedding_dim):
+        super(Decoder, self).__init__()
+        C = low_res.size(1)
+        C_prime = high_res.size(1)
+        gru2_input_size = C + C_prime
+        self.embedding = nn.Embedding(num_classes, embedding_dim)
+        self.gru1 = nn.GRU(input_size=embedding_dim,
+                           hidden_size=hidden_size, batch_first=True)
+        self.gru2 = nn.GRU(input_size=gru2_input_size,
+                           hidden_size=hidden_size, batch_first=True)
+        # L = H * W
+        low_res_attn_size = low_res.size(2) * low_res.size(3)
+        high_res_attn_size = high_res.size(2) * high_res.size(3)
+        self.coverage_attn_low = CoverageAttention(
+            C, decoder_conv_filters,
+            attn_size=low_res_attn_size, kernel_size=11)
+        self.coverage_attn_high = CoverageAttention(
+            C_prime, decoder_conv_filters,
+            attn_size=high_res_attn_size, kernel_size=7)
+        self.low_res = low_res
+        self.high_res = high_res
+        self.hidden_size = hidden_size
+
+    def init_hidden(self, batch_size):
+        return torch.zeros((1, batch_size, self.hidden_size))
+
+    # TODO: Figure out what to do with the new hidden state returned from the
+    # GRUs. Apparently they aren't kept, since the new hidden state of the
+    # decoder is the output of the second GRU.
+    def forward(self, x, hidden):
+        embedded = self.embedding(x)
+        pred, _ = self.gru1(embedded, hidden)
+        context_low = self.coverage_attn_low(self.low_res, pred)
+        context_high = self.coverage_attn_high(self.high_res, pred)
+        context = torch.cat((context_low, context_high), dim=1)
+        new_hidden, _ = self.gru2(context.unsqueeze(1), pred.transpose(0, 1))
+        return pred, new_hidden.transpose(0, 1)
