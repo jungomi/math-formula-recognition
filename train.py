@@ -9,10 +9,9 @@ from torchvision import transforms
 from model import Encoder, Decoder
 from dataset import CrohmeDataset, START
 
-input_size = 256
-# TODO: calculate these instead of hardcoding
-low_res_shape = (684, 16, 16)
-high_res_shape = (792, 32, 32)
+input_size = (256, 256)
+low_res_shape = (684, input_size[0] // 16, input_size[1] // 16)
+high_res_shape = (792, input_size[0] // 8, input_size[1] // 8)
 
 batch_size = 4
 num_workers = 4
