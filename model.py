@@ -15,6 +15,8 @@ decoder_conv_filters = 256
 gru_hidden_size = 256
 embedding_dim = 256
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class BottleneckBlock(nn.Module):
     def __init__(self, input_size, growth_rate):
@@ -108,9 +110,10 @@ class CoverageAttention(nn.Module):
     # input_size = C
     # output_size = q
     # attn_size = L = H * W
-    def __init__(self, input_size, output_size, attn_size, kernel_size):
+    def __init__(self, input_size, output_size, attn_size, kernel_size,
+                 device=device):
         super(CoverageAttention, self).__init__()
-        self.alpha = torch.zeros((1, attn_size))
+        self.alpha = torch.zeros((1, attn_size), device=device)
         self.conv = nn.Conv2d(input_size, output_size, kernel_size=kernel_size)
         self.fc = nn.Linear(attn_size, attn_size * output_size)
         self.U_pred = nn.Parameter(torch.randn((n_prime, n)))
@@ -155,11 +158,12 @@ class CoverageAttention(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, num_classes, low_res, high_res,
-                 hidden_size=gru_hidden_size, embedding_dim=embedding_dim):
+    def __init__(self, num_classes, low_res_shape, high_res_shape,
+                 hidden_size=gru_hidden_size, embedding_dim=embedding_dim,
+                 device=device):
         super(Decoder, self).__init__()
-        C = low_res.size(1)
-        C_prime = high_res.size(1)
+        C = low_res_shape[0]
+        C_prime = high_res_shape[0]
         context_size = C + C_prime
         self.embedding = nn.Embedding(num_classes, embedding_dim)
         self.gru1 = nn.GRU(input_size=embedding_dim,
@@ -167,19 +171,17 @@ class Decoder(nn.Module):
         self.gru2 = nn.GRU(input_size=context_size,
                            hidden_size=hidden_size, batch_first=True)
         # L = H * W
-        low_res_attn_size = low_res.size(2) * low_res.size(3)
-        high_res_attn_size = high_res.size(2) * high_res.size(3)
+        low_res_attn_size = low_res_shape[1] * low_res_shape[2]
+        high_res_attn_size = high_res_shape[1] * high_res_shape[2]
         self.coverage_attn_low = CoverageAttention(
             C, decoder_conv_filters,
-            attn_size=low_res_attn_size, kernel_size=11)
+            attn_size=low_res_attn_size, kernel_size=11, device=device)
         self.coverage_attn_high = CoverageAttention(
             C_prime, decoder_conv_filters,
-            attn_size=high_res_attn_size, kernel_size=7)
+            attn_size=high_res_attn_size, kernel_size=7, device=device)
         self.W_o = nn.Parameter(torch.randn((num_classes, embedding_dim)))
         self.W_s = nn.Parameter(torch.randn((embedding_dim, hidden_size)))
         self.W_c = nn.Parameter(torch.randn((embedding_dim, context_size)))
-        self.low_res = low_res
-        self.high_res = high_res
         self.hidden_size = hidden_size
 
     def init_hidden(self, batch_size):
@@ -195,11 +197,11 @@ class Decoder(nn.Module):
     # The inputs that are multiplied by the weights are transposed to get
     # (m x batch_size) instead of (batch_size x m). The result of the
     # multiplication is tranposed back.
-    def forward(self, x, hidden):
+    def forward(self, x, hidden, low_res, high_res):
         embedded = self.embedding(x)
         pred, _ = self.gru1(embedded, hidden)
-        context_low = self.coverage_attn_low(self.low_res, pred)
-        context_high = self.coverage_attn_high(self.high_res, pred)
+        context_low = self.coverage_attn_low(low_res, pred)
+        context_high = self.coverage_attn_high(high_res, pred)
         context = torch.cat((context_low, context_high), dim=1)
         new_hidden, _ = self.gru2(context.unsqueeze(1), pred.transpose(0, 1))
         w_s = torch.matmul(self.W_s, new_hidden.squeeze(1).t()).t()
@@ -207,5 +209,4 @@ class Decoder(nn.Module):
         # TODO: Maxout this
         out = embedded.squeeze(1) + w_s + w_c
         out = torch.matmul(self.W_o, out.t()).t()
-        out = torch.softmax(out, dim=1)
         return out, new_hidden.transpose(0, 1)

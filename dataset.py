@@ -5,7 +5,8 @@ from torch.utils.data import Dataset
 
 START = "<SOS>"
 END = "<EOS>"
-SPECIAL_TOKENS = [START, END]
+PAD = "<PAD>"
+SPECIAL_TOKENS = [START, END, PAD]
 
 
 # Rather ignorant way to encode the truth, but at least it works.
@@ -57,9 +58,19 @@ class CrohmeDataset(Dataset):
             reader = csv.reader(fd, delimiter="\t")
             self.data = [{"path": os.path.join(root, p + ext), "truth": {
                 "text": truth,
-                "encoded": encode_truth(truth, self.token_to_id)
+                "encoded": [
+                    self.token_to_id[START],
+                    *encode_truth(truth, self.token_to_id),
+                    self.token_to_id[END]
+                ]
             }}
                 for p, truth in reader]
+            # Pad encoded truth to get same size
+            self.max_len = max([len(d["truth"]["encoded"])
+                                for d in self.data])
+            for d in self.data:
+                padding = self.max_len - len(d["truth"]["encoded"])
+                d["truth"]["encoded"] += padding * [self.token_to_id[PAD]]
 
     def __len__(self):
         return len(self.data)
