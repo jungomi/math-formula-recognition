@@ -122,6 +122,11 @@ class CoverageAttention(nn.Module):
         self.nu_attn = nn.Parameter(torch.randn(n_prime))
         self.input_size = input_size
         self.output_size = output_size
+        self.attn_size = attn_size
+        self.device = device
+
+    def reset_alpha(self):
+        self.alpha = torch.zeros((1, self.attn_size), device=self.device)
 
     def forward(self, x, pred):
         batch_size = x.size(0)
@@ -186,6 +191,10 @@ class Decoder(nn.Module):
 
     def init_hidden(self, batch_size):
         return torch.zeros((1, batch_size, self.hidden_size))
+
+    def reset(self):
+        self.coverage_attn_low.reset_alpha()
+        self.coverage_attn_high.reset_alpha()
 
     # TODO: Figure out what to do with the new hidden state returned from the
     # GRUs. Apparently they aren't kept, since the new hidden state of the
