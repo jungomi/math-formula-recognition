@@ -19,7 +19,19 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class BottleneckBlock(nn.Module):
+    """
+    Dense Bottleneck Block
+
+    It contains two convolutional layers, a 1x1 and a 3x3.
+    """
+
     def __init__(self, input_size, growth_rate):
+        """
+        Args:
+            input_size (int): Number of channels of the input
+            growth_rate (int): Number of new features being added. That is the ouput
+                size of the last convolutional layer.
+        """
         super(BottleneckBlock, self).__init__()
         inter_size = num_bn * growth_rate
         self.norm1 = nn.BatchNorm2d(input_size)
@@ -39,7 +51,19 @@ class BottleneckBlock(nn.Module):
 
 
 class TransitionBlock(nn.Module):
+    """
+    Transition Block
+
+    A transition layer reduces the number of feature maps in-between two bottleneck
+    blocks.
+    """
+
     def __init__(self, input_size, output_size):
+        """
+        Args:
+            input_size (int): Number of channels of the input
+            output_size (int): Number of channels of the output
+        """
         super(TransitionBlock, self).__init__()
         self.norm = nn.BatchNorm2d(input_size)
         self.relu = nn.ReLU(inplace=True)
@@ -54,7 +78,19 @@ class TransitionBlock(nn.Module):
 
 
 class DenseBlock(nn.Module):
+    """
+    Dense block
+
+    A dense block stacks several bottleneck blocks.
+    """
+
     def __init__(self, input_size, growth_rate, depth):
+        """
+        Args:
+            input_size (int): Number of channels of the input
+            growth_rate (int): Number of new features being added per bottleneck block
+            depth (int): Number of bottleneck blocks
+        """
         super(DenseBlock, self).__init__()
         layers = [
             BottleneckBlock(input_size + i * growth_rate, growth_rate)
@@ -67,7 +103,20 @@ class DenseBlock(nn.Module):
 
 
 class Encoder(nn.Module):
+    """Multi-scale Dense Encoder
+
+    A multi-scale dense encoder with two branches. The first branch produces
+    low-resolution annotations, as a regular dense encoder would, and the second branch
+    produces high-resolution annotations.
+    """
+
     def __init__(self, num_in_features=48, checkpoint=None):
+        """
+        Args:
+        num_in_features (int): Number of channels that are created from the input to
+            feed to the first dense block
+        checkpoint (dict): State dictionary to be loaded
+        """
         super(Encoder, self).__init__()
         self.conv0 = nn.Conv2d(
             3, num_in_features, kernel_size=7, stride=2, padding=3, bias=False
@@ -115,10 +164,24 @@ class Encoder(nn.Module):
 
 
 class CoverageAttention(nn.Module):
+    """Coverage attention
+
+    The coverage attention is a multi-layer perceptron, which takes encoded annotations
+    and creates a context vector.
+    """
+
     # input_size = C
     # output_size = q
     # attn_size = L = H * W
     def __init__(self, input_size, output_size, attn_size, kernel_size, device=device):
+        """
+        Args:
+        input_size (int): Number of channels of the input
+        output_size (int): Number of channels of the coverage
+        attn_size (int): Length of the annotation vector
+        kernel_size ((int, int)): Kernel size of the convolutional layer
+        device (torch.Device): Device for the tensors
+        """
         super(CoverageAttention, self).__init__()
         self.alpha = torch.zeros((1, attn_size), device=device)
         self.conv = nn.Conv2d(input_size, output_size, kernel_size=kernel_size)
@@ -173,6 +236,12 @@ class CoverageAttention(nn.Module):
 
 
 class Decoder(nn.Module):
+    """Decoder
+
+    GRU based Decoder which attends to the low- and high-resolution annotations to
+    create a LaTeX string.
+    """
+
     def __init__(
         self,
         num_classes,
@@ -183,6 +252,18 @@ class Decoder(nn.Module):
         checkpoint=None,
         device=device,
     ):
+        """
+        Args:
+        num_classes (int): Number of symbol classes
+        low_res_shape ((int, int, int)): Shape of the low resolution annotations
+            i.e. (C, W, H)
+        high_res_shape ((int, int, int)): Shape of the high resolution annotations
+            i.e. (C_prime, 2W, 2H)
+        hidden_size (int): Hidden size of the GRU
+        embedding_dim (int): Dimension of the embedding
+        checkpoint (dict): State dictionary to be loaded
+        device (torch.Device): Device for the tensors
+        """
         super(Decoder, self).__init__()
         C = low_res_shape[0]
         C_prime = high_res_shape[0]
