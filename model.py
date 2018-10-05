@@ -173,19 +173,23 @@ class CoverageAttention(nn.Module):
     # input_size = C
     # output_size = q
     # attn_size = L = H * W
-    def __init__(self, input_size, output_size, attn_size, kernel_size, device=device):
+    def __init__(
+        self, input_size, output_size, attn_size, kernel_size, padding=0, device=device
+    ):
         """
         Args:
         input_size (int): Number of channels of the input
         output_size (int): Number of channels of the coverage
         attn_size (int): Length of the annotation vector
-        kernel_size ((int, int)): Kernel size of the convolutional layer
+        kernel_size (int): Kernel size of the 1D convolutional layer
+        padding (int): Padding of the 1D convolutional layer
         device (torch.Device): Device for the tensors
         """
         super(CoverageAttention, self).__init__()
         self.alpha = None
-        self.conv = nn.Conv2d(input_size, output_size, kernel_size=kernel_size)
-        self.fc = nn.Linear(attn_size, attn_size * output_size)
+        # NOTE: Not sure whether that Conv1d is correct, but is the only way to get the
+        # correct output dimensions.
+        self.conv = nn.Conv1d(1, output_size, kernel_size=kernel_size, padding=padding)
         self.U_pred = nn.Parameter(torch.randn((n_prime, n)))
         self.U_a = nn.Parameter(torch.randn((n_prime, input_size)))
         self.U_f = nn.Parameter(torch.randn((n_prime, output_size)))
@@ -202,9 +206,7 @@ class CoverageAttention(nn.Module):
         batch_size = x.size(0)
         if self.alpha is None:
             self.reset_alpha(batch_size)
-        # TODO: Use the convolutional layer.
-        # The linear layer is just to make it work until I figure out the Conv.
-        out_f = self.fc(self.alpha.sum(1)).view(batch_size, -1, self.output_size)
+        conv_out = self.conv(self.alpha.sum(1).unsqueeze(1))
         # Get rid of seq_len (dim 1, which is always 1)
         # Transpose to get input_size x batch_size to multiply
         pred_view = pred.squeeze(1).t()
@@ -216,7 +218,7 @@ class CoverageAttention(nn.Module):
         # To: (batch_size x C x L)
         a = x.view(batch_size, x.size(1), -1)
         u_a = torch.matmul(self.U_a, a)
-        u_f = torch.matmul(self.U_f, out_f.transpose(1, 2))
+        u_f = torch.matmul(self.U_f, conv_out)
         # u_pred is expanded from (batch_size x n_prime)
         # to (batch_size x n_prime x L) because there are L components to which
         # the same u_pred is added.
@@ -281,6 +283,7 @@ class Decoder(nn.Module):
             decoder_conv_filters,
             attn_size=low_res_attn_size,
             kernel_size=11,
+            padding=5,
             device=device,
         )
         self.coverage_attn_high = CoverageAttention(
@@ -288,6 +291,7 @@ class Decoder(nn.Module):
             decoder_conv_filters,
             attn_size=high_res_attn_size,
             kernel_size=7,
+            padding=3,
             device=device,
         )
         self.W_o = nn.Parameter(torch.randn((num_classes, embedding_dim)))
