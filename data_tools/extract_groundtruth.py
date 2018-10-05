@@ -13,7 +13,8 @@ def extract_truth(file_path):
     truths = [ann for ann in annotations if ann.get("type") == "truth"]
     if len(truths) != 1:
         raise Exception(
-            "{} does not contain a ground truth annotation".format(file_path))
+            "{} does not contain a ground truth annotation".format(file_path)
+        )
     return truths[0].text
 
 
@@ -30,7 +31,7 @@ def create_tsv(path, output="groundtruth.tsv"):
             writer.writerow([reference_name, truth])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     """
     extract_groundtruth path/to/dataset [-o OUTPUT]
     """
@@ -40,8 +41,10 @@ if __name__ == '__main__':
         "--output",
         dest="output",
         default="groundtruth.tsv",
-        help="Output path of the TSV file")
+        help="Output path of the TSV file",
+    )
     parser.add_argument(
-        "directory", nargs=1, help="Directory to data with ground truth")
+        "directory", nargs=1, help="Directory to data with ground truth"
+    )
     args = parser.parse_args()
     create_tsv(args.directory[0], args.output)

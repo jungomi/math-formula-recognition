@@ -15,9 +15,11 @@ def encode_truth(truth, token_to_id):
     remaining_truth = truth.strip()
     while len(remaining_truth) > 0:
         try:
-            index, tok_len = next([i, len(tok)]
-                                  for tok, i in token_to_id.items()
-                                  if remaining_truth.startswith(tok))
+            index, tok_len = next(
+                [i, len(tok)]
+                for tok, i in token_to_id.items()
+                if remaining_truth.startswith(tok)
+            )
             truth_tokens.append(index)
             remaining_truth = remaining_truth[tok_len:].lstrip()
         except StopIteration:
@@ -38,8 +40,7 @@ def load_vocab(tokens_file):
 class CrohmeDataset(Dataset):
     """Dataset CROHME's handwritten mathematical formulas"""
 
-    def __init__(self, groundtruth, tokens_file,
-                 root=None, ext=".png", transform=None):
+    def __init__(self, groundtruth, tokens_file, root=None, ext=".png", transform=None):
         """
         Args:
             groundtruth (string): Path to ground truth TSV file
@@ -56,18 +57,22 @@ class CrohmeDataset(Dataset):
         self.token_to_id, self.id_to_token = load_vocab(tokens_file)
         with open(groundtruth, "r") as fd:
             reader = csv.reader(fd, delimiter="\t")
-            self.data = [{"path": os.path.join(root, p + ext), "truth": {
-                "text": truth,
-                "encoded": [
-                    self.token_to_id[START],
-                    *encode_truth(truth, self.token_to_id),
-                    self.token_to_id[END]
-                ]
-            }}
-                for p, truth in reader]
+            self.data = [
+                {
+                    "path": os.path.join(root, p + ext),
+                    "truth": {
+                        "text": truth,
+                        "encoded": [
+                            self.token_to_id[START],
+                            *encode_truth(truth, self.token_to_id),
+                            self.token_to_id[END],
+                        ],
+                    },
+                }
+                for p, truth in reader
+            ]
             # Pad encoded truth to get same size
-            self.max_len = max([len(d["truth"]["encoded"])
-                                for d in self.data])
+            self.max_len = max([len(d["truth"]["encoded"]) for d in self.data])
             for d in self.data:
                 padding = self.max_len - len(d["truth"]["encoded"])
                 d["truth"]["encoded"] += padding * [self.token_to_id[PAD]]

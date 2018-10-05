@@ -24,11 +24,13 @@ class BottleneckBlock(nn.Module):
         inter_size = num_bn * growth_rate
         self.norm1 = nn.BatchNorm2d(input_size)
         self.relu = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(input_size, inter_size,
-                               kernel_size=1, stride=1, bias=False)
+        self.conv1 = nn.Conv2d(
+            input_size, inter_size, kernel_size=1, stride=1, bias=False
+        )
         self.norm2 = nn.BatchNorm2d(inter_size)
-        self.conv2 = nn.Conv2d(inter_size, growth_rate,
-                               kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(
+            inter_size, growth_rate, kernel_size=3, stride=1, padding=1, bias=False
+        )
 
     def forward(self, x):
         out = self.conv1(self.relu(self.norm1(x)))
@@ -41,8 +43,9 @@ class TransitionBlock(nn.Module):
         super(TransitionBlock, self).__init__()
         self.norm = nn.BatchNorm2d(input_size)
         self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(input_size, output_size,
-                              kernel_size=1, stride=1, bias=False)
+        self.conv = nn.Conv2d(
+            input_size, output_size, kernel_size=1, stride=1, bias=False
+        )
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
 
     def forward(self, x):
@@ -53,8 +56,10 @@ class TransitionBlock(nn.Module):
 class DenseBlock(nn.Module):
     def __init__(self, input_size, growth_rate, depth):
         super(DenseBlock, self).__init__()
-        layers = [BottleneckBlock(input_size + i * growth_rate, growth_rate)
-                  for i in range(depth)]
+        layers = [
+            BottleneckBlock(input_size + i * growth_rate, growth_rate)
+            for i in range(depth)
+        ]
         self.block = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -65,30 +70,30 @@ class Encoder(nn.Module):
     def __init__(self, num_in_features=48, checkpoint=None):
         super(Encoder, self).__init__()
         self.conv0 = nn.Conv2d(
-            3, num_in_features, kernel_size=7, stride=2, padding=3, bias=False)
+            3, num_in_features, kernel_size=7, stride=2, padding=3, bias=False
+        )
         self.norm0 = nn.BatchNorm2d(num_in_features)
         self.relu = nn.ReLU(inplace=True)
         self.max_pool = nn.MaxPool2d(kernel_size=2, stride=2)
         num_features = num_in_features
-        self.block1 = DenseBlock(
-            num_features, growth_rate=growth_rate, depth=depth)
+        self.block1 = DenseBlock(num_features, growth_rate=growth_rate, depth=depth)
         num_features = num_features + depth * growth_rate
         self.trans1 = TransitionBlock(num_features, num_features // 2)
         num_features = num_features // 2
-        self.block2 = DenseBlock(
-            num_features, growth_rate=growth_rate, depth=depth)
+        self.block2 = DenseBlock(num_features, growth_rate=growth_rate, depth=depth)
 
         num_features = num_features + depth * growth_rate
         self.trans2_norm = nn.BatchNorm2d(num_features)
         self.trans2_relu = nn.ReLU(inplace=True)
-        self.trans2_conv = nn.Conv2d(num_features, num_features // 2,
-                                     kernel_size=1, stride=1, bias=False)
+        self.trans2_conv = nn.Conv2d(
+            num_features, num_features // 2, kernel_size=1, stride=1, bias=False
+        )
         self.trans2_pool = nn.AvgPool2d(kernel_size=2, stride=2)
         self.multi_block = DenseBlock(
-            num_features, growth_rate=growth_rate, depth=multi_block_depth)
+            num_features, growth_rate=growth_rate, depth=multi_block_depth
+        )
         num_features = num_features // 2
-        self.block3 = DenseBlock(
-            num_features, growth_rate=growth_rate, depth=depth)
+        self.block3 = DenseBlock(num_features, growth_rate=growth_rate, depth=depth)
         num_features = num_features + depth * growth_rate // 2
 
         if checkpoint is not None:
@@ -113,8 +118,7 @@ class CoverageAttention(nn.Module):
     # input_size = C
     # output_size = q
     # attn_size = L = H * W
-    def __init__(self, input_size, output_size, attn_size, kernel_size,
-                 device=device):
+    def __init__(self, input_size, output_size, attn_size, kernel_size, device=device):
         super(CoverageAttention, self).__init__()
         self.alpha = torch.zeros((1, attn_size), device=device)
         self.conv = nn.Conv2d(input_size, output_size, kernel_size=kernel_size)
@@ -135,8 +139,11 @@ class CoverageAttention(nn.Module):
         batch_size = x.size(0)
         # TODO: Use the convolutional layer.
         # The linear layer is just to make it work until I figure out the Conv.
-        out_f = self.fc(self.alpha.sum(0)).view(
-            1, -1, self.output_size).expand(batch_size, -1, -1)
+        out_f = (
+            self.fc(self.alpha.sum(0))
+            .view(1, -1, self.output_size)
+            .expand(batch_size, -1, -1)
+        )
         # Get rid of seq_len (dim 1, which is always 1)
         # Transpose to get input_size x batch_size to multiply
         pred_view = pred.squeeze(1).t()
@@ -166,27 +173,44 @@ class CoverageAttention(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, num_classes, low_res_shape, high_res_shape,
-                 hidden_size=gru_hidden_size, embedding_dim=embedding_dim,
-                 checkpoint=None, device=device):
+    def __init__(
+        self,
+        num_classes,
+        low_res_shape,
+        high_res_shape,
+        hidden_size=gru_hidden_size,
+        embedding_dim=embedding_dim,
+        checkpoint=None,
+        device=device,
+    ):
         super(Decoder, self).__init__()
         C = low_res_shape[0]
         C_prime = high_res_shape[0]
         context_size = C + C_prime
         self.embedding = nn.Embedding(num_classes, embedding_dim)
-        self.gru1 = nn.GRU(input_size=embedding_dim,
-                           hidden_size=hidden_size, batch_first=True)
-        self.gru2 = nn.GRU(input_size=context_size,
-                           hidden_size=hidden_size, batch_first=True)
+        self.gru1 = nn.GRU(
+            input_size=embedding_dim, hidden_size=hidden_size, batch_first=True
+        )
+        self.gru2 = nn.GRU(
+            input_size=context_size, hidden_size=hidden_size, batch_first=True
+        )
         # L = H * W
         low_res_attn_size = low_res_shape[1] * low_res_shape[2]
         high_res_attn_size = high_res_shape[1] * high_res_shape[2]
         self.coverage_attn_low = CoverageAttention(
-            C, decoder_conv_filters,
-            attn_size=low_res_attn_size, kernel_size=11, device=device)
+            C,
+            decoder_conv_filters,
+            attn_size=low_res_attn_size,
+            kernel_size=11,
+            device=device,
+        )
         self.coverage_attn_high = CoverageAttention(
-            C_prime, decoder_conv_filters,
-            attn_size=high_res_attn_size, kernel_size=7, device=device)
+            C_prime,
+            decoder_conv_filters,
+            attn_size=high_res_attn_size,
+            kernel_size=7,
+            device=device,
+        )
         self.W_o = nn.Parameter(torch.randn((num_classes, embedding_dim)))
         self.W_s = nn.Parameter(torch.randn((embedding_dim, hidden_size)))
         self.W_c = nn.Parameter(torch.randn((embedding_dim, context_size)))

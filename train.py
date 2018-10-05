@@ -26,15 +26,26 @@ tokensfile = "./data/tokens.txt"
 root = "./data/png/"
 use_cuda = torch.cuda.is_available()
 
-transformers = transforms.Compose([
-    # Resize to 256x256 so all images have the same size
-    transforms.Resize(input_size),
-    transforms.ToTensor(),
-])
+transformers = transforms.Compose(
+    [
+        # Resize to 256x256 so all images have the same size
+        transforms.Resize(input_size),
+        transforms.ToTensor(),
+    ]
+)
 
 
-def train(enc, dec, optimiser, criterion, data_loader, device,
-          num_epochs=100, print_epochs=None, checkpoint=default_checkpoint):
+def train(
+    enc,
+    dec,
+    optimiser,
+    criterion,
+    data_loader,
+    device,
+    num_epochs=100,
+    print_epochs=None,
+    checkpoint=default_checkpoint,
+):
     if print_epochs is None:
         print_epochs = num_epochs
 
@@ -57,15 +68,16 @@ def train(enc, dec, optimiser, criterion, data_loader, device,
             dec.reset()
             hidden = dec.init_hidden(data_loader.batch_size).to(device)
             # Starts with a START token
-            sequence = torch.full((data_loader.batch_size, 1),
-                                  data_loader.dataset.token_to_id[START],
-                                  dtype=torch.long,
-                                  device=device)
+            sequence = torch.full(
+                (data_loader.batch_size, 1),
+                data_loader.dataset.token_to_id[START],
+                dtype=torch.long,
+                device=device,
+            )
             decoded_values = []
             for i in range(data_loader.dataset.max_len - 1):
                 previous = sequence[:, -1].view(-1, 1)
-                out, hidden = dec(
-                    previous, hidden, enc_low_res, enc_high_res)
+                out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
                 _, top1_id = torch.topk(out, 1)
                 sequence = torch.cat((sequence, top1_id), dim=1)
                 decoded_values.append(out)
@@ -78,39 +90,40 @@ def train(enc, dec, optimiser, criterion, data_loader, device,
             optimiser.step()
 
             epoch_losses.append(loss.item())
-            epoch_correct_symbols += torch.sum(sequence ==
-                                               expected, dim=(0, 1)).item()
+            epoch_correct_symbols += torch.sum(sequence == expected, dim=(0, 1)).item()
 
         mean_epoch_loss = np.mean(epoch_losses)
         losses.append(mean_epoch_loss)
         epoch_accuracy = epoch_correct_symbols / total_symbols
         accuracy.append(accuracy)
 
-        save_checkpoint({
-            "epoch": start_epoch + epoch + 1,
-            "losses": losses,
-            "accuracy": accuracy,
-            "model": {
-                "encoder": enc.state_dict(),
-                "decoder": dec.state_dict(),
-            },
-            "optimiser": optimiser.state_dict(),
-        })
+        save_checkpoint(
+            {
+                "epoch": start_epoch + epoch + 1,
+                "losses": losses,
+                "accuracy": accuracy,
+                "model": {"encoder": enc.state_dict(), "decoder": dec.state_dict()},
+                "optimiser": optimiser.state_dict(),
+            }
+        )
 
         elapsed_time = time.time() - start_time
         elapsed_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
         if epoch % print_epochs == 0 or epoch == num_epochs - 1:
-            print("[{current:>{pad}}/{end}] Epoch {epoch}: "
-                  "Accuracy = {accuracy:.5f}, "
-                  "Loss = {loss:.5f} "
-                  "(time elapsed {time})".format(
-                      current=epoch + 1,
-                      end=num_epochs,
-                      epoch=start_epoch + epoch + 1,
-                      pad=len(str(num_epochs)),
-                      accuracy=epoch_accuracy,
-                      loss=mean_epoch_loss,
-                      time=elapsed_time))
+            print(
+                "[{current:>{pad}}/{end}] Epoch {epoch}: "
+                "Accuracy = {accuracy:.5f}, "
+                "Loss = {loss:.5f} "
+                "(time elapsed {time})".format(
+                    current=epoch + 1,
+                    end=num_epochs,
+                    epoch=start_epoch + epoch + 1,
+                    pad=len(str(num_epochs)),
+                    accuracy=epoch_accuracy,
+                    loss=mean_epoch_loss,
+                    time=elapsed_time,
+                )
+            )
 
     return np.array(losses), np.array(accuracy)
 
@@ -123,53 +136,60 @@ def parse_args():
         dest="lr",
         default=learning_rate,
         type=float,
-        help="Learning rate [default: {}]".format(learning_rate))
+        help="Learning rate [default: {}]".format(learning_rate),
+    )
     parser.add_argument(
         "-d",
         "--decay",
         dest="weight_decay",
         default=weight_decay,
         type=float,
-        help="Weight decay [default: {}]".format(weight_decay))
+        help="Weight decay [default: {}]".format(weight_decay),
+    )
     parser.add_argument(
         "-c",
         "--checkpoint",
         dest="checkpoint",
-        help="Path to the checkpoint to be loaded to resume training")
+        help="Path to the checkpoint to be loaded to resume training",
+    )
     parser.add_argument(
         "-n",
         "--num-epochs",
         dest="num_epochs",
         default=num_epochs,
         type=int,
-        help="Number of epochs to train [default: {}]".format(num_epochs))
+        help="Number of epochs to train [default: {}]".format(num_epochs),
+    )
     parser.add_argument(
         "-p",
         "--print-epochs",
         dest="print_epochs",
         default=print_epochs,
         type=int,
-        help="Number of epochs to report [default: {}]".format(print_epochs))
+        help="Number of epochs to report [default: {}]".format(print_epochs),
+    )
     parser.add_argument(
         "-b",
         "--batch-size",
         dest="batch_size",
         default=batch_size,
         type=int,
-        help="Size of data batches [default: {}]".format(batch_size))
+        help="Size of data batches [default: {}]".format(batch_size),
+    )
     parser.add_argument(
         "-w",
         "--workers",
         dest="num_workers",
         default=num_workers,
         type=int,
-        help="Number of workers for loading the data [default: {}]".format(
-            num_workers))
+        help="Number of workers for loading the data [default: {}]".format(num_workers),
+    )
     parser.add_argument(
         "--no-cuda",
         dest="no_cuda",
         action="store_true",
-        help="Do not use CUDA even if it's available")
+        help="Do not use CUDA even if it's available",
+    )
 
     return parser.parse_args()
 
@@ -179,30 +199,41 @@ def main():
     hardware = "cuda" if use_cuda and not options.no_cuda else "cpu"
     device = torch.device(hardware)
 
-    checkpoint = load_checkpoint(
-        options.checkpoint) if options.checkpoint else default_checkpoint
+    checkpoint = (
+        load_checkpoint(options.checkpoint)
+        if options.checkpoint
+        else default_checkpoint
+    )
     print("Running {} epochs on {}".format(options.num_epochs, hardware))
     encoder_checkpoint = checkpoint["model"].get("encoder")
     decoder_checkpoint = checkpoint["model"].get("decoder")
     if encoder_checkpoint is not None:
-        print("Resuming from - Epoch {}: "
-              "Accuracy = {accuracy:.5f}, "
-              "Loss = {loss:.5f} ".format(
-                  checkpoint["epoch"],
-                  accuracy=checkpoint["accuracy"][-1],
-                  loss=checkpoint["losses"][-1]))
+        print(
+            "Resuming from - Epoch {}: "
+            "Accuracy = {accuracy:.5f}, "
+            "Loss = {loss:.5f} ".format(
+                checkpoint["epoch"],
+                accuracy=checkpoint["accuracy"][-1],
+                loss=checkpoint["losses"][-1],
+            )
+        )
 
-    dataset = CrohmeDataset(groundtruth, tokensfile,
-                            root=root, transform=transformers)
+    dataset = CrohmeDataset(groundtruth, tokensfile, root=root, transform=transformers)
     data_loader = DataLoader(
         dataset,
         batch_size=options.batch_size,
         shuffle=True,
-        num_workers=options.num_workers)
+        num_workers=options.num_workers,
+    )
     criterion = nn.CrossEntropyLoss().to(device)
     enc = Encoder(checkpoint=encoder_checkpoint).to(device)
-    dec = Decoder(len(dataset.id_to_token), low_res_shape, high_res_shape,
-                  checkpoint=decoder_checkpoint, device=device).to(device)
+    dec = Decoder(
+        len(dataset.id_to_token),
+        low_res_shape,
+        high_res_shape,
+        checkpoint=decoder_checkpoint,
+        device=device,
+    ).to(device)
     enc.train()
     dec.train()
 
@@ -213,13 +244,20 @@ def main():
         param for param in dec.parameters() if param.requires_grad
     ]
     params_to_optimise = [*enc_params_to_optimise, *dec_params_to_optimise]
-    optimiser = optim.Adadelta(params_to_optimise,
-                               weight_decay=options.weight_decay)
+    optimiser = optim.Adadelta(params_to_optimise, weight_decay=options.weight_decay)
 
-    return train(enc, dec, optimiser, criterion, data_loader,
-                 print_epochs=options.print_epochs, device=device,
-                 num_epochs=options.num_epochs, checkpoint=checkpoint)
+    return train(
+        enc,
+        dec,
+        optimiser,
+        criterion,
+        data_loader,
+        print_epochs=options.print_epochs,
+        device=device,
+        num_epochs=options.num_epochs,
+        checkpoint=checkpoint,
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

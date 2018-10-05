@@ -43,7 +43,7 @@ def create_tokens(groundtruth, output="tokens.txt"):
             writer.writerow(symbols)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     """
     extract_tokens path/to/groundtruth.tsv [-o OUTPUT]
     """
@@ -53,8 +53,8 @@ if __name__ == '__main__':
         "--output",
         dest="output",
         default="tokens.txt",
-        help="Output path of the tokens text file")
-    parser.add_argument(
-        "groundtruth", nargs=1, help="Ground truth TSV file")
+        help="Output path of the tokens text file",
+    )
+    parser.add_argument("groundtruth", nargs=1, help="Ground truth TSV file")
     args = parser.parse_args()
     create_tokens(args.groundtruth[0], args.output)
