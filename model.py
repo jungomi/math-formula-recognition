@@ -62,7 +62,7 @@ class DenseBlock(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, num_in_features=48):
+    def __init__(self, num_in_features=48, checkpoint=None):
         super(Encoder, self).__init__()
         self.conv0 = nn.Conv2d(
             3, num_in_features, kernel_size=7, stride=2, padding=3, bias=False)
@@ -90,6 +90,9 @@ class Encoder(nn.Module):
         self.block3 = DenseBlock(
             num_features, growth_rate=growth_rate, depth=depth)
         num_features = num_features + depth * growth_rate // 2
+
+        if checkpoint is not None:
+            self.load_state_dict(checkpoint)
 
     def forward(self, x):
         out = self.relu(self.norm0(self.conv0(x)))
@@ -165,7 +168,7 @@ class CoverageAttention(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, num_classes, low_res_shape, high_res_shape,
                  hidden_size=gru_hidden_size, embedding_dim=embedding_dim,
-                 device=device):
+                 checkpoint=None, device=device):
         super(Decoder, self).__init__()
         C = low_res_shape[0]
         C_prime = high_res_shape[0]
@@ -188,6 +191,9 @@ class Decoder(nn.Module):
         self.W_s = nn.Parameter(torch.randn((embedding_dim, hidden_size)))
         self.W_c = nn.Parameter(torch.randn((embedding_dim, context_size)))
         self.hidden_size = hidden_size
+
+        if checkpoint is not None:
+            self.load_state_dict(checkpoint)
 
     def init_hidden(self, batch_size):
         return torch.zeros((1, batch_size, self.hidden_size))

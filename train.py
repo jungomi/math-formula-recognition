@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from checkpoint import default_checkpoint, load_checkpoint, save_checkpoint
 from model import Encoder, Decoder
 from dataset import CrohmeDataset, START
 
@@ -33,13 +34,14 @@ transformers = transforms.Compose([
 
 
 def train(enc, dec, optimiser, criterion, data_loader, device,
-          num_epochs=100, print_epochs=None):
+          num_epochs=100, print_epochs=None, checkpoint=default_checkpoint):
     if print_epochs is None:
         print_epochs = num_epochs
 
     total_symbols = len(data_loader.dataset) * data_loader.dataset.max_len
-    accuracy = []
-    losses = []
+    start_epoch = checkpoint["epoch"]
+    accuracy = checkpoint["accuracy"]
+    losses = checkpoint["losses"]
 
     for epoch in range(num_epochs):
         start_time = time.time()
@@ -84,6 +86,17 @@ def train(enc, dec, optimiser, criterion, data_loader, device,
         epoch_accuracy = epoch_correct_symbols / total_symbols
         accuracy.append(accuracy)
 
+        save_checkpoint({
+            "epoch": start_epoch + epoch + 1,
+            "losses": losses,
+            "accuracy": accuracy,
+            "model": {
+                "encoder": enc.state_dict(),
+                "decoder": dec.state_dict(),
+            },
+            "optimiser": optimiser.state_dict(),
+        })
+
         elapsed_time = time.time() - start_time
         elapsed_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
         if epoch % print_epochs == 0 or epoch == num_epochs - 1:
@@ -93,7 +106,7 @@ def train(enc, dec, optimiser, criterion, data_loader, device,
                   "(time elapsed {time})".format(
                       current=epoch + 1,
                       end=num_epochs,
-                      epoch=epoch + 1,
+                      epoch=start_epoch + epoch + 1,
                       pad=len(str(num_epochs)),
                       accuracy=epoch_accuracy,
                       loss=mean_epoch_loss,
@@ -163,8 +176,22 @@ def parse_args():
 
 def main():
     options = parse_args()
-    device = torch.device("cuda" if use_cuda and not options.no_cuda
-                          else "cpu")
+    hardware = "cuda" if use_cuda and not options.no_cuda else "cpu"
+    device = torch.device(hardware)
+
+    checkpoint = load_checkpoint(
+        options.checkpoint) if options.checkpoint else default_checkpoint
+    print("Running {} epochs on {}".format(options.num_epochs, hardware))
+    encoder_checkpoint = checkpoint["model"].get("encoder")
+    decoder_checkpoint = checkpoint["model"].get("decoder")
+    if encoder_checkpoint is not None:
+        print("Resuming from - Epoch {}: "
+              "Accuracy = {accuracy:.5f}, "
+              "Loss = {loss:.5f} ".format(
+                  checkpoint["epoch"],
+                  accuracy=checkpoint["accuracy"][-1],
+                  loss=checkpoint["losses"][-1]))
+
     dataset = CrohmeDataset(groundtruth, tokensfile,
                             root=root, transform=transformers)
     data_loader = DataLoader(
@@ -173,9 +200,9 @@ def main():
         shuffle=True,
         num_workers=options.num_workers)
     criterion = nn.CrossEntropyLoss().to(device)
-    enc = Encoder().to(device)
-    dec = Decoder(len(dataset.id_to_token), low_res_shape,
-                  high_res_shape, device=device).to(device)
+    enc = Encoder(checkpoint=encoder_checkpoint).to(device)
+    dec = Decoder(len(dataset.id_to_token), low_res_shape, high_res_shape,
+                  checkpoint=decoder_checkpoint, device=device).to(device)
     enc.train()
     dec.train()
 
@@ -191,7 +218,7 @@ def main():
 
     return train(enc, dec, optimiser, criterion, data_loader,
                  print_epochs=options.print_epochs, device=device,
-                 num_epochs=options.num_epochs)
+                 num_epochs=options.num_epochs, checkpoint=checkpoint)
 
 
 if __name__ == '__main__':
