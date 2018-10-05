@@ -183,7 +183,7 @@ class CoverageAttention(nn.Module):
         device (torch.Device): Device for the tensors
         """
         super(CoverageAttention, self).__init__()
-        self.alpha = torch.zeros((1, attn_size), device=device)
+        self.alpha = None
         self.conv = nn.Conv2d(input_size, output_size, kernel_size=kernel_size)
         self.fc = nn.Linear(attn_size, attn_size * output_size)
         self.U_pred = nn.Parameter(torch.randn((n_prime, n)))
@@ -195,18 +195,16 @@ class CoverageAttention(nn.Module):
         self.attn_size = attn_size
         self.device = device
 
-    def reset_alpha(self):
-        self.alpha = torch.zeros((1, self.attn_size), device=self.device)
+    def reset_alpha(self, batch_size):
+        self.alpha = torch.zeros((batch_size, 1, self.attn_size), device=self.device)
 
     def forward(self, x, pred):
         batch_size = x.size(0)
+        if self.alpha is None:
+            self.reset_alpha(batch_size)
         # TODO: Use the convolutional layer.
         # The linear layer is just to make it work until I figure out the Conv.
-        out_f = (
-            self.fc(self.alpha.sum(0))
-            .view(1, -1, self.output_size)
-            .expand(batch_size, -1, -1)
-        )
+        out_f = self.fc(self.alpha.sum(1)).view(batch_size, -1, self.output_size)
         # Get rid of seq_len (dim 1, which is always 1)
         # Transpose to get input_size x batch_size to multiply
         pred_view = pred.squeeze(1).t()
@@ -226,7 +224,7 @@ class CoverageAttention(nn.Module):
         tan_res = torch.tanh(u_pred_expanded + u_a + u_f)
         e_t = torch.matmul(self.nu_attn, tan_res)
         alpha_t = torch.softmax(e_t, dim=1)
-        self.alpha = torch.cat((self.alpha, alpha_t), dim=0)
+        self.alpha = torch.cat((self.alpha, alpha_t.unsqueeze(1)), dim=1)
         # alpha_t: (batch_size x L)
         # a: (batch_size x C x L) but need (C x batch_size x L) for
         # element-wise multiplication. So transpose them.

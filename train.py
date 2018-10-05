@@ -65,7 +65,7 @@ def train(
             enc_low_res, enc_high_res = enc(input)
             # Decoder needs to be reset, because the coverage attention (alpha)
             # only applies to the current image.
-            dec.reset()
+            dec.reset(data_loader.batch_size)
             hidden = dec.init_hidden(data_loader.batch_size).to(device)
             # Starts with a START token
             sequence = torch.full(
