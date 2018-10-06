@@ -190,7 +190,6 @@ class CoverageAttention(nn.Module):
         # NOTE: Not sure whether that Conv1d is correct, but is the only way to get the
         # correct output dimensions.
         self.conv = nn.Conv1d(1, output_size, kernel_size=kernel_size, padding=padding)
-        self.U_pred = nn.Parameter(torch.randn((n_prime, n)))
         self.U_a = nn.Parameter(torch.randn((n_prime, input_size)))
         self.U_f = nn.Parameter(torch.randn((n_prime, output_size)))
         self.nu_attn = nn.Parameter(torch.randn(n_prime))
@@ -202,17 +201,11 @@ class CoverageAttention(nn.Module):
     def reset_alpha(self, batch_size):
         self.alpha = torch.zeros((batch_size, 1, self.attn_size), device=self.device)
 
-    def forward(self, x, pred):
+    def forward(self, x, u_pred):
         batch_size = x.size(0)
         if self.alpha is None:
             self.reset_alpha(batch_size)
         conv_out = self.conv(self.alpha.sum(1).unsqueeze(1))
-        # Get rid of seq_len (dim 1, which is always 1)
-        # Transpose to get input_size x batch_size to multiply
-        pred_view = pred.squeeze(1).t()
-        u_pred = torch.matmul(self.U_pred, pred_view)
-        # Transpose back to get batch_size x n_prime
-        u_pred = u_pred.t()
         # Change the dimensions
         # From: (batch_size x C x H x W)
         # To: (batch_size x C x L)
@@ -297,6 +290,7 @@ class Decoder(nn.Module):
         self.W_o = nn.Parameter(torch.randn((num_classes, embedding_dim)))
         self.W_s = nn.Parameter(torch.randn((embedding_dim, hidden_size)))
         self.W_c = nn.Parameter(torch.randn((embedding_dim, context_size)))
+        self.U_pred = nn.Parameter(torch.randn((n_prime, n)))
         self.hidden_size = hidden_size
 
         if checkpoint is not None:
@@ -322,8 +316,12 @@ class Decoder(nn.Module):
     def forward(self, x, hidden, low_res, high_res):
         embedded = self.embedding(x)
         pred, _ = self.gru1(embedded, hidden)
-        context_low = self.coverage_attn_low(low_res, pred)
-        context_high = self.coverage_attn_high(high_res, pred)
+        # u_pred is computed here instead of in the coverage attention, because they
+        # weight U_pred is shared and the coverage attention does not use pred for
+        # anything else. This avoids computing it twice.
+        u_pred = torch.matmul(self.U_pred, pred.squeeze(1).t()).t()
+        context_low = self.coverage_attn_low(low_res, u_pred)
+        context_high = self.coverage_attn_high(high_res, u_pred)
         context = torch.cat((context_low, context_high), dim=1)
         new_hidden, _ = self.gru2(context.unsqueeze(1), pred.transpose(0, 1))
         w_s = torch.matmul(self.W_s, new_hidden.squeeze(1).t()).t()
