@@ -61,15 +61,17 @@ def train(
 
         for d in data_loader:
             input = d["image"].to(device)
+            # The last batch may not be a full batch
+            curr_batch_size = len(input)
             expected = torch.stack(d["truth"]["encoded"], dim=1).to(device)
             enc_low_res, enc_high_res = enc(input)
             # Decoder needs to be reset, because the coverage attention (alpha)
             # only applies to the current image.
-            dec.reset(data_loader.batch_size)
-            hidden = dec.init_hidden(data_loader.batch_size).to(device)
+            dec.reset(curr_batch_size)
+            hidden = dec.init_hidden(curr_batch_size).to(device)
             # Starts with a START token
             sequence = torch.full(
-                (data_loader.batch_size, 1),
+                (curr_batch_size, 1),
                 data_loader.dataset.token_to_id[START],
                 dtype=torch.long,
                 device=device,
