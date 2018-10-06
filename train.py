@@ -97,7 +97,7 @@ def train(
         mean_epoch_loss = np.mean(epoch_losses)
         losses.append(mean_epoch_loss)
         epoch_accuracy = epoch_correct_symbols / total_symbols
-        accuracy.append(accuracy)
+        accuracy.append(epoch_accuracy)
 
         save_checkpoint(
             {
