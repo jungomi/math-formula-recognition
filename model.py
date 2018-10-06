@@ -320,9 +320,9 @@ class Decoder(nn.Module):
     def init_hidden(self, batch_size):
         return torch.zeros((1, batch_size, self.hidden_size))
 
-    def reset(self):
-        self.coverage_attn_low.reset_alpha()
-        self.coverage_attn_high.reset_alpha()
+    def reset(self, batch_size):
+        self.coverage_attn_low.reset_alpha(batch_size)
+        self.coverage_attn_high.reset_alpha(batch_size)
 
     # TODO: Figure out what to do with the new hidden state returned from the
     # GRUs. Apparently they aren't kept, since the new hidden state of the
