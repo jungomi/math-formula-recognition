@@ -246,7 +246,12 @@ def main():
         param for param in dec.parameters() if param.requires_grad
     ]
     params_to_optimise = [*enc_params_to_optimise, *dec_params_to_optimise]
-    optimiser = optim.Adadelta(params_to_optimise, weight_decay=options.weight_decay)
+    optimiser = optim.Adadelta(
+        params_to_optimise, lr=options.lr, weight_decay=options.weight_decay
+    )
+    optimiser_state = checkpoint.get("optimiser")
+    if optimiser_state:
+        optimiser.load_state_dict(optimiser_state)
 
     return train(
         enc,
