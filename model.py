@@ -120,10 +120,10 @@ class Encoder(nn.Module):
     def __init__(self, num_in_features=48, dropout_rate=0.2, checkpoint=None):
         """
         Args:
-        num_in_features (int): Number of channels that are created from the input to
-            feed to the first dense block
-        dropout_rate (float, optional): Probability of dropout [Default: 0.2]
-        checkpoint (dict): State dictionary to be loaded
+            num_in_features (int, optional): Number of channels that are created from
+                the input to feed to the first dense block [Default: 48]
+            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
+            checkpoint (dict, optional): State dictionary to be loaded
         """
         super(Encoder, self).__init__()
         self.conv0 = nn.Conv2d(
@@ -196,13 +196,13 @@ class CoverageAttention(nn.Module):
     ):
         """
         Args:
-        input_size (int): Number of channels of the input
-        output_size (int): Number of channels of the coverage
-        attn_size (int): Length of the annotation vector
-        kernel_size (int): Kernel size of the 1D convolutional layer
-        padding (int): Padding of the 1D convolutional layer
-        dropout_rate (float, optional): Probability of dropout [Default: 0.2]
-        device (torch.Device): Device for the tensors
+            input_size (int): Number of channels of the input
+            output_size (int): Number of channels of the coverage
+            attn_size (int): Length of the annotation vector
+            kernel_size (int): Kernel size of the 1D convolutional layer
+            padding (int, optional): Padding of the 1D convolutional layer [Default: 0]
+            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
+            device (torch.device, optional): Device for the tensors
         """
         super(CoverageAttention, self).__init__()
         self.alpha = None
@@ -261,22 +261,22 @@ class Decoder(nn.Module):
         num_classes,
         low_res_shape,
         high_res_shape,
-        hidden_size=gru_hidden_size,
-        embedding_dim=embedding_dim,
+        hidden_size=256,
+        embedding_dim=256,
         checkpoint=None,
         device=device,
     ):
         """
         Args:
-        num_classes (int): Number of symbol classes
-        low_res_shape ((int, int, int)): Shape of the low resolution annotations
-            i.e. (C, W, H)
-        high_res_shape ((int, int, int)): Shape of the high resolution annotations
-            i.e. (C_prime, 2W, 2H)
-        hidden_size (int): Hidden size of the GRU
-        embedding_dim (int): Dimension of the embedding
-        checkpoint (dict): State dictionary to be loaded
-        device (torch.Device): Device for the tensors
+            num_classes (int): Number of symbol classes
+            low_res_shape ((int, int, int)): Shape of the low resolution annotations
+                i.e. (C, W, H)
+            high_res_shape ((int, int, int)): Shape of the high resolution annotations
+                i.e. (C_prime, 2W, 2H)
+            hidden_size (int, optional): Hidden size of the GRU [Default: 256]
+            embedding_dim (int, optional): Dimension of the embedding [Default: 256]
+            checkpoint (dict, optional): State dictionary to be loaded
+            device (torch.device, optional): Device for the tensors
         """
         super(Decoder, self).__init__()
         C = low_res_shape[0]
