@@ -19,6 +19,8 @@ num_workers = 4
 num_epochs = 10
 print_epochs = 1
 learning_rate = 1e-3
+lr_epochs = 3
+lr_factor = 0.1
 weight_decay = 1e-4
 
 groundtruth = "./data/groundtruth.tsv"
@@ -42,6 +44,7 @@ def train(
     criterion,
     data_loader,
     device,
+    lr_scheduler=None,
     num_epochs=100,
     print_epochs=None,
     checkpoint=default_checkpoint,
@@ -58,6 +61,9 @@ def train(
         start_time = time.time()
         epoch_losses = []
         epoch_correct_symbols = 0
+
+        if lr_scheduler:
+            lr_scheduler.step()
 
         for d in data_loader:
             input = d["image"].to(device)
@@ -115,7 +121,8 @@ def train(
             print(
                 "[{current:>{pad}}/{end}] Epoch {epoch}: "
                 "Accuracy = {accuracy:.5f}, "
-                "Loss = {loss:.5f} "
+                "Loss = {loss:.5f}, "
+                "lr = {lr} "
                 "(time elapsed {time})".format(
                     current=epoch + 1,
                     end=num_epochs,
@@ -123,6 +130,7 @@ def train(
                     pad=len(str(num_epochs)),
                     accuracy=epoch_accuracy,
                     loss=mean_epoch_loss,
+                    lr=lr_scheduler.get_lr()[0],
                     time=elapsed_time,
                 )
             )
@@ -139,6 +147,22 @@ def parse_args():
         default=learning_rate,
         type=float,
         help="Learning rate [default: {}]".format(learning_rate),
+    )
+    parser.add_argument(
+        "--lr-epochs",
+        dest="lr_epochs",
+        default=lr_epochs,
+        type=float,
+        help="Number of epochs until decay of learning rate [default: {}]".format(
+            lr_epochs
+        ),
+    )
+    parser.add_argument(
+        "--lr-factor",
+        dest="lr_factor",
+        default=lr_factor,
+        type=float,
+        help="Decay factor of learning rate [default: {}]".format(lr_factor),
     )
     parser.add_argument(
         "-d",
@@ -252,6 +276,17 @@ def main():
     optimiser_state = checkpoint.get("optimiser")
     if optimiser_state:
         optimiser.load_state_dict(optimiser_state)
+    # Set the learning rate instead of using the previous state.
+    # The scheduler somehow overwrites the LR to the initial LR after loading,
+    # which would always reset it to the first used learning rate instead of
+    # the one from the previous checkpoint. So might as well set it manually.
+    for param_group in optimiser.param_groups:
+        param_group["initial_lr"] = options.lr
+    # Decay learning rate by a factor of lr_factor (default: 0.1)
+    # every lr_epochs (default: 3)
+    lr_scheduler = optim.lr_scheduler.StepLR(
+        optimiser, step_size=options.lr_epochs, gamma=options.lr_factor
+    )
 
     return train(
         enc,
@@ -259,6 +294,7 @@ def main():
         optimiser,
         criterion,
         data_loader,
+        lr_scheduler=lr_scheduler,
         print_epochs=options.print_epochs,
         device=device,
         num_epochs=options.num_epochs,
