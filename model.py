@@ -25,12 +25,13 @@ class BottleneckBlock(nn.Module):
     It contains two convolutional layers, a 1x1 and a 3x3.
     """
 
-    def __init__(self, input_size, growth_rate):
+    def __init__(self, input_size, growth_rate, dropout_rate=0.2):
         """
         Args:
             input_size (int): Number of channels of the input
             growth_rate (int): Number of new features being added. That is the ouput
                 size of the last convolutional layer.
+            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
         """
         super(BottleneckBlock, self).__init__()
         inter_size = num_bn * growth_rate
@@ -43,10 +44,13 @@ class BottleneckBlock(nn.Module):
         self.conv2 = nn.Conv2d(
             inter_size, growth_rate, kernel_size=3, stride=1, padding=1, bias=False
         )
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
         out = self.conv1(self.relu(self.norm1(x)))
+        out = self.dropout(out)
         out = self.conv2(self.relu(self.norm2(out)))
+        out = self.dropout(out)
         return torch.cat([x, out], 1)
 
 
@@ -58,11 +62,12 @@ class TransitionBlock(nn.Module):
     blocks.
     """
 
-    def __init__(self, input_size, output_size):
+    def __init__(self, input_size, output_size, dropout_rate=0.2):
         """
         Args:
             input_size (int): Number of channels of the input
             output_size (int): Number of channels of the output
+            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
         """
         super(TransitionBlock, self).__init__()
         self.norm = nn.BatchNorm2d(input_size)
@@ -71,9 +76,11 @@ class TransitionBlock(nn.Module):
             input_size, output_size, kernel_size=1, stride=1, bias=False
         )
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
         out = self.conv(self.relu(self.norm(x)))
+        out = self.dropout(out)
         return self.pool(out)
 
 
@@ -110,11 +117,12 @@ class Encoder(nn.Module):
     produces high-resolution annotations.
     """
 
-    def __init__(self, num_in_features=48, checkpoint=None):
+    def __init__(self, num_in_features=48, dropout_rate=0.2, checkpoint=None):
         """
         Args:
         num_in_features (int): Number of channels that are created from the input to
             feed to the first dense block
+        dropout_rate (float, optional): Probability of dropout [Default: 0.2]
         checkpoint (dict): State dictionary to be loaded
         """
         super(Encoder, self).__init__()
@@ -143,19 +151,22 @@ class Encoder(nn.Module):
         )
         num_features = num_features // 2
         self.block3 = DenseBlock(num_features, growth_rate=growth_rate, depth=depth)
-        num_features = num_features + depth * growth_rate // 2
+        self.dropout = nn.Dropout(dropout_rate)
 
         if checkpoint is not None:
             self.load_state_dict(checkpoint)
 
     def forward(self, x):
-        out = self.relu(self.norm0(self.conv0(x)))
+        out = self.conv0(x)
+        out = self.dropout(out)
+        out = self.relu(self.norm0(out))
         out = self.max_pool(out)
         out = self.block1(out)
         out = self.trans1(out)
         out = self.block2(out)
         out_before_trans2 = self.trans2_relu(self.trans2_norm(out))
         out_A = self.trans2_conv(out_before_trans2)
+        out_A = self.dropout(out_A)
         out_A = self.trans2_pool(out_A)
         out_A = self.block3(out_A)
         out_B = self.multi_block(out_before_trans2)
@@ -174,7 +185,14 @@ class CoverageAttention(nn.Module):
     # output_size = q
     # attn_size = L = H * W
     def __init__(
-        self, input_size, output_size, attn_size, kernel_size, padding=0, device=device
+        self,
+        input_size,
+        output_size,
+        attn_size,
+        kernel_size,
+        padding=0,
+        dropout_rate=0.2,
+        device=device,
     ):
         """
         Args:
@@ -183,6 +201,7 @@ class CoverageAttention(nn.Module):
         attn_size (int): Length of the annotation vector
         kernel_size (int): Kernel size of the 1D convolutional layer
         padding (int): Padding of the 1D convolutional layer
+        dropout_rate (float, optional): Probability of dropout [Default: 0.2]
         device (torch.Device): Device for the tensors
         """
         super(CoverageAttention, self).__init__()
@@ -193,6 +212,7 @@ class CoverageAttention(nn.Module):
         self.U_a = nn.Parameter(torch.randn((n_prime, input_size)))
         self.U_f = nn.Parameter(torch.randn((n_prime, output_size)))
         self.nu_attn = nn.Parameter(torch.randn(n_prime))
+        self.dropout = nn.Dropout(dropout_rate)
         self.input_size = input_size
         self.output_size = output_size
         self.attn_size = attn_size
@@ -206,6 +226,7 @@ class CoverageAttention(nn.Module):
         if self.alpha is None:
             self.reset_alpha(batch_size)
         conv_out = self.conv(self.alpha.sum(1).unsqueeze(1))
+        conv_out = self.dropout(conv_out)
         # Change the dimensions
         # From: (batch_size x C x H x W)
         # To: (batch_size x C x L)
