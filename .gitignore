@@ -1,5 +1,6 @@
 checkpoints/
 data/
+tensorboard/
 
 # Node
 node_modules/
