@@ -4,7 +4,7 @@ from tensorboardX import SummaryWriter
 
 use_cuda = torch.cuda.is_available()
 
-default_checkpoint = {"epoch": 0, "losses": [], "accuracy": [], "model": {}}
+default_checkpoint = {"epoch": 0, "losses": [], "accuracy": [], "lr": [], "model": {}}
 
 
 def save_checkpoint(checkpoint, dir="./checkpoints", prefix=""):

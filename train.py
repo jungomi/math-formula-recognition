@@ -64,6 +64,7 @@ def train(
     start_epoch = checkpoint["epoch"]
     accuracy = checkpoint["accuracy"]
     losses = checkpoint["losses"]
+    learning_rates = checkpoint["lr"]
 
     for epoch in range(num_epochs):
         start_time = time.time()
@@ -112,12 +113,15 @@ def train(
         losses.append(mean_epoch_loss)
         epoch_accuracy = epoch_correct_symbols / total_symbols
         accuracy.append(epoch_accuracy)
+        epoch_lr = lr_scheduler.get_lr()[0]
+        learning_rates.append(epoch_lr)
 
         save_checkpoint(
             {
                 "epoch": start_epoch + epoch + 1,
                 "losses": losses,
                 "accuracy": accuracy,
+                "lr": learning_rates,
                 "model": {"encoder": enc.state_dict(), "decoder": dec.state_dict()},
                 "optimiser": optimiser.state_dict(),
             },
@@ -139,7 +143,7 @@ def train(
                     pad=len(str(num_epochs)),
                     accuracy=epoch_accuracy,
                     loss=mean_epoch_loss,
-                    lr=lr_scheduler.get_lr()[0],
+                    lr=epoch_lr,
                     time=elapsed_time,
                 )
             )
