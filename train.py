@@ -54,6 +54,7 @@ def train(
     num_epochs=100,
     print_epochs=None,
     checkpoint=default_checkpoint,
+    prefix="",
 ):
     if print_epochs is None:
         print_epochs = num_epochs
@@ -119,7 +120,8 @@ def train(
                 "accuracy": accuracy,
                 "model": {"encoder": enc.state_dict(), "decoder": dec.state_dict()},
                 "optimiser": optimiser.state_dict(),
-            }
+            },
+            prefix=prefix,
         )
 
         elapsed_time = time.time() - start_time
@@ -224,6 +226,13 @@ def parse_args():
         action="store_true",
         help="Do not use CUDA even if it's available",
     )
+    parser.add_argument(
+        "--prefix",
+        dest="prefix",
+        default="",
+        type=str,
+        help="Prefix of checkpoint names",
+    )
 
     return parser.parse_args()
 
@@ -307,6 +316,7 @@ def main():
         device=device,
         num_epochs=options.num_epochs,
         checkpoint=checkpoint,
+        prefix=options.prefix,
     )
 
 
