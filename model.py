@@ -117,9 +117,12 @@ class Encoder(nn.Module):
     produces high-resolution annotations.
     """
 
-    def __init__(self, num_in_features=48, dropout_rate=0.2, checkpoint=None):
+    def __init__(
+        self, img_channels=1, num_in_features=48, dropout_rate=0.2, checkpoint=None
+    ):
         """
         Args:
+            img_channels (int, optional): Number of channels of the images [Default: 1]
             num_in_features (int, optional): Number of channels that are created from
                 the input to feed to the first dense block [Default: 48]
             dropout_rate (float, optional): Probability of dropout [Default: 0.2]
@@ -127,7 +130,12 @@ class Encoder(nn.Module):
         """
         super(Encoder, self).__init__()
         self.conv0 = nn.Conv2d(
-            3, num_in_features, kernel_size=7, stride=2, padding=3, bias=False
+            img_channels,
+            num_in_features,
+            kernel_size=7,
+            stride=2,
+            padding=3,
+            bias=False,
         )
         self.norm0 = nn.BatchNorm2d(num_in_features)
         self.relu = nn.ReLU(inplace=True)

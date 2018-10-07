@@ -83,8 +83,8 @@ class CrohmeDataset(Dataset):
     def __getitem__(self, i):
         item = self.data[i]
         image = Image.open(item["path"])
-        # Remove the alpha channel
-        image = image.convert("RGB")
+        # Convert to Grey-scale
+        image = image.convert("L")
 
         if self.transform:
             image = self.transform(image)
