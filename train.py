@@ -6,7 +6,13 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from checkpoint import default_checkpoint, load_checkpoint, save_checkpoint
+from checkpoint import (
+    default_checkpoint,
+    load_checkpoint,
+    save_checkpoint,
+    init_tensorboard,
+    write_tensorboard,
+)
 from model import Encoder, Decoder
 from dataset import CrohmeDataset, START
 
@@ -52,6 +58,7 @@ def train(
     if print_epochs is None:
         print_epochs = num_epochs
 
+    writer = init_tensorboard()
     total_symbols = len(data_loader.dataset) * data_loader.dataset.max_len
     start_epoch = checkpoint["epoch"]
     accuracy = checkpoint["accuracy"]
@@ -134,6 +141,7 @@ def train(
                     time=elapsed_time,
                 )
             )
+            write_tensorboard(writer, epoch, mean_epoch_loss, epoch_accuracy, enc, dec)
 
     return np.array(losses), np.array(accuracy)
 

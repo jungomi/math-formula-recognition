@@ -1,5 +1,6 @@
 import os
 import torch
+from tensorboardX import SummaryWriter
 
 use_cuda = torch.cuda.is_available()
 
@@ -21,3 +22,30 @@ def load_checkpoint(path, cuda=use_cuda):
     else:
         # Load GPU model on CPU
         return torch.load(path, map_location=lambda storage, loc: storage)
+
+
+def init_tensorboard(name="", base_dir="./tensorboard"):
+    return SummaryWriter(os.path.join(base_dir, name))
+
+
+def write_tensorboard(writer, epoch, loss, accuracy, encoder, decoder):
+    writer.add_scalar("loss", loss, epoch)
+    writer.add_scalar("accuracy", accuracy, epoch)
+
+    for name, param in encoder.named_parameters():
+        writer.add_histogram(
+            "encoder/{}".format(name), param.detach().cpu().numpy(), epoch
+        )
+        if param.grad is not None:
+            writer.add_histogram(
+                "encoder/{}/grad".format(name), param.grad.detach().cpu().numpy(), epoch
+            )
+
+    for name, param in decoder.named_parameters():
+        writer.add_histogram(
+            "decoder/{}".format(name), param.detach().cpu().numpy(), epoch
+        )
+        if param.grad is not None:
+            writer.add_histogram(
+                "decoder/{}/grad".format(name), param.grad.detach().cpu().numpy(), epoch
+            )
