@@ -19,7 +19,7 @@ def extract_truth(file_path):
 
 
 def create_tsv(path, output="groundtruth.tsv"):
-    files = glob.glob(os.path.join(path, "**/*.inkml"))
+    files = glob.glob(os.path.join(path, "*.inkml"))
     with open(output, "w") as fd:
         writer = csv.writer(fd, delimiter="\t")
         for f in files:
