@@ -206,9 +206,7 @@ class CoverageAttention(nn.Module):
         """
         super(CoverageAttention, self).__init__()
         self.alpha = None
-        # NOTE: Not sure whether that Conv1d is correct, but is the only way to get the
-        # correct output dimensions.
-        self.conv = nn.Conv1d(1, output_size, kernel_size=kernel_size, padding=padding)
+        self.conv = nn.Conv2d(1, output_size, kernel_size=kernel_size, padding=padding)
         self.U_a = nn.Parameter(torch.randn((n_prime, input_size)))
         self.U_f = nn.Parameter(torch.randn((n_prime, output_size)))
         self.nu_attn = nn.Parameter(torch.randn(n_prime))
@@ -225,8 +223,16 @@ class CoverageAttention(nn.Module):
         batch_size = x.size(0)
         if self.alpha is None:
             self.reset_alpha(batch_size)
-        conv_out = self.conv(self.alpha.sum(1).unsqueeze(1))
+        # Change the dimensions to make it possible to apply a 2D convolution
+        # From: (batch_size x L)
+        # To: (batch_size x H x W)
+        alpha_sum = self.alpha.sum(1).view(batch_size, x.size(2), x.size(3))
+        conv_out = self.conv(alpha_sum.unsqueeze(1))
         conv_out = self.dropout(conv_out)
+        # Change dimensions back
+        # From: (batch_size x output_size x H x W)
+        # To: (batch_size x output_size x L)
+        conv_out = conv_out.view(batch_size, self.output_size, -1)
         # Change the dimensions
         # From: (batch_size x C x H x W)
         # To: (batch_size x C x L)
@@ -296,7 +302,7 @@ class Decoder(nn.Module):
             C,
             decoder_conv_filters,
             attn_size=low_res_attn_size,
-            kernel_size=11,
+            kernel_size=(11, 11),
             padding=5,
             device=device,
         )
@@ -304,7 +310,7 @@ class Decoder(nn.Module):
             C_prime,
             decoder_conv_filters,
             attn_size=high_res_attn_size,
-            kernel_size=7,
+            kernel_size=(7, 7),
             padding=3,
             device=device,
         )
