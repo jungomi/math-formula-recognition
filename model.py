@@ -263,6 +263,27 @@ class CoverageAttention(nn.Module):
         return cA_t_L.transpose(0, 1).sum(2)
 
 
+class Maxout(nn.Module):
+    """
+    Maxout makes pools from the last dimension and keeps only the maximum value from
+    each pool.
+    """
+
+    def __init__(self, pool_size):
+        """
+        Args:
+            pool_size (int): Number of elements per pool
+        """
+        super(Maxout, self).__init__()
+        self.pool_size = pool_size
+
+    def forward(self, x):
+        [*shape, last] = x.size()
+        out = x.view(*shape, last // self.pool_size, self.pool_size)
+        out, _ = out.max(-1)
+        return out
+
+
 class Decoder(nn.Module):
     """Decoder
 
@@ -322,10 +343,11 @@ class Decoder(nn.Module):
             padding=3,
             device=device,
         )
-        self.W_o = nn.Parameter(torch.randn((num_classes, embedding_dim)))
+        self.W_o = nn.Parameter(torch.randn((num_classes, embedding_dim // 2)))
         self.W_s = nn.Parameter(torch.randn((embedding_dim, hidden_size)))
         self.W_c = nn.Parameter(torch.randn((embedding_dim, context_size)))
         self.U_pred = nn.Parameter(torch.randn((n_prime, n)))
+        self.maxout = Maxout(2)
         self.hidden_size = hidden_size
 
         if checkpoint is not None:
@@ -361,7 +383,7 @@ class Decoder(nn.Module):
         new_hidden, _ = self.gru2(context.unsqueeze(1), pred.transpose(0, 1))
         w_s = torch.matmul(self.W_s, new_hidden.squeeze(1).t()).t()
         w_c = torch.matmul(self.W_c, context.t()).t()
-        # TODO: Maxout this
         out = embedded.squeeze(1) + w_s + w_c
+        out = self.maxout(out)
         out = torch.matmul(self.W_o, out.t()).t()
         return out, new_hidden.transpose(0, 1)
