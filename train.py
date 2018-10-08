@@ -29,9 +29,9 @@ lr_epochs = 3
 lr_factor = 0.1
 weight_decay = 1e-4
 
-groundtruth = "./data/groundtruth.tsv"
-tokensfile = "./data/tokens.txt"
-root = "./data/png/"
+groundtruth = "./data/groundtruth_train.tsv"
+tokensfile = "./data/tokens.tsv"
+root = "./data/train/"
 use_cuda = torch.cuda.is_available()
 
 transformers = transforms.Compose(
