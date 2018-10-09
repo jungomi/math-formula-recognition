@@ -4,6 +4,22 @@ I implemented the paper [Multi-Scale Attention with Dense Encoder for Handwritte
 There are certain parts that aren't completely clear, mostly because of lack of
 information, but at least it works out and seems fairly logical.
 
+## Table of contents
+
+<!-- vim-markdown-toc GFM -->
+
+* [Dataset](#dataset)
+* [Details of the model's architecture](#details-of-the-models-architecture)
+  * [Encoder](#encoder)
+  * [Decoder](#decoder)
+    * [Coverage attention](#coverage-attention)
+    * [Dimensions](#dimensions)
+    * [Convolution Q](#convolution-q)
+    * [Maxout activation function *h*](#maxout-activation-function-h)
+* [Needs discussion / clarification](#needs-discussion--clarification)
+
+<!-- vim-markdown-toc -->
+
 ## Dataset
 
 [CROHME: Competition on Recognition of Online Handwritten Mathematical Expressions][crohme] has been used.
