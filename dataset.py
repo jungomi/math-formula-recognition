@@ -9,10 +9,45 @@ PAD = "<PAD>"
 SPECIAL_TOKENS = [START, END, PAD]
 
 
+# There are so many symbols (mostly escape sequences) that are in the test sets but not
+# in the training set.
+def remove_unknown_tokens(truth):
+    # Remove \mathrm and \vtop are only present in the test sets, but not in the
+    # training set. They are purely for formatting anyway.
+    remaining_truth = truth.replace("\\mathrm", "")
+    remaining_truth = remaining_truth.replace("\\vtop", "")
+    # \; \! are spaces and only present in 2014's test set
+    remaining_truth = remaining_truth.replace("\\;", " ")
+    remaining_truth = remaining_truth.replace("\\!", " ")
+    remaining_truth = remaining_truth.replace("\ ", " ")
+    # There's one occurrence of \dots in the 2013 test set, but it wasn't present in the
+    # training set. It's either \ldots or \cdots in math mode, which are essentially
+    # equivalent.
+    remaining_truth = remaining_truth.replace("\\dots", "\\ldots")
+    # Again, \lbrack and \rbrack where not present in the training set, but they render
+    # similar to \left[ and \right] respectively.
+    remaining_truth = remaining_truth.replace("\\lbrack", "\\left[")
+    remaining_truth = remaining_truth.replace("\\rbrack", "\\right]")
+    # Same story, where \mbox = \leavemode\hbox
+    remaining_truth = remaining_truth.replace("\\hbox", "\\mbox")
+    # There is no reason to use \lt or \gt instead of < and > in math mode. But the
+    # training set does. They are not even LaTeX control sequences but are used in
+    # MathJax (to prevent code injection).
+    remaining_truth = remaining_truth.replace("<", "\lt")
+    remaining_truth = remaining_truth.replace(">", "\gt")
+    # \parallel renders to two vertical bars
+    remaining_truth = remaining_truth.replace("\parallel", "||")
+    # Some capital letters are not in the training set...
+    remaining_truth = remaining_truth.replace("O", "o")
+    remaining_truth = remaining_truth.replace("W", "w")
+    remaining_truth = remaining_truth.replace("\Pi", "\pi")
+    return remaining_truth
+
+
 # Rather ignorant way to encode the truth, but at least it works.
 def encode_truth(truth, token_to_id):
     truth_tokens = []
-    remaining_truth = truth.strip()
+    remaining_truth = remove_unknown_tokens(truth).strip()
     while len(remaining_truth) > 0:
         try:
             index, tok_len = next(
