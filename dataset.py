@@ -1,5 +1,6 @@
 import csv
 import os
+import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
@@ -72,6 +73,23 @@ def load_vocab(tokens_file):
         return token_to_id, id_to_token
 
 
+def collate_batch(data):
+    max_len = max([len(d["truth"]["encoded"]) for d in data])
+    # Padding with -1, will later be replaced with the PAD token
+    padded_encoded = [
+        d["truth"]["encoded"] + (max_len - len(d["truth"]["encoded"])) * [-1]
+        for d in data
+    ]
+    return {
+        "path": [d["path"] for d in data],
+        "image": torch.stack([d["image"] for d in data], dim=0),
+        "truth": {
+            "text": [d["truth"]["text"] for d in data],
+            "encoded": torch.tensor(padded_encoded),
+        },
+    }
+
+
 class CrohmeDataset(Dataset):
     """Dataset CROHME's handwritten mathematical formulas"""
 
@@ -106,11 +124,6 @@ class CrohmeDataset(Dataset):
                 }
                 for p, truth in reader
             ]
-            # Pad encoded truth to get same size
-            self.max_len = max([len(d["truth"]["encoded"]) for d in self.data])
-            for d in self.data:
-                padding = self.max_len - len(d["truth"]["encoded"])
-                d["truth"]["encoded"] += padding * [self.token_to_id[PAD]]
 
     def __len__(self):
         return len(self.data)

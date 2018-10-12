@@ -14,7 +14,7 @@ from checkpoint import (
     write_tensorboard,
 )
 from model import Encoder, Decoder
-from dataset import CrohmeDataset, START
+from dataset import CrohmeDataset, START, PAD, collate_batch
 
 input_size = (256, 256)
 low_res_shape = (684, input_size[0] // 16, input_size[1] // 16)
@@ -60,7 +60,6 @@ def train(
         print_epochs = num_epochs
 
     writer = init_tensorboard()
-    total_symbols = len(data_loader.dataset) * data_loader.dataset.max_len
     start_epoch = checkpoint["epoch"]
     accuracy = checkpoint["accuracy"]
     losses = checkpoint["losses"]
@@ -70,6 +69,7 @@ def train(
         start_time = time.time()
         epoch_losses = []
         epoch_correct_symbols = 0
+        total_symbols = 0
 
         if lr_scheduler:
             lr_scheduler.step()
@@ -78,7 +78,10 @@ def train(
             input = d["image"].to(device)
             # The last batch may not be a full batch
             curr_batch_size = len(input)
-            expected = torch.stack(d["truth"]["encoded"], dim=1).to(device)
+            expected = d["truth"]["encoded"].to(device)
+            batch_max_len = expected.size(1)
+            # Replace -1 with the PAD token
+            expected[expected == -1] = data_loader.dataset.token_to_id[PAD]
             enc_low_res, enc_high_res = enc(input)
             # Decoder needs to be reset, because the coverage attention (alpha)
             # only applies to the current image.
@@ -92,7 +95,7 @@ def train(
                 device=device,
             )
             decoded_values = []
-            for i in range(data_loader.dataset.max_len - 1):
+            for i in range(batch_max_len - 1):
                 previous = sequence[:, -1].view(-1, 1)
                 out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
                 _, top1_id = torch.topk(out, 1)
@@ -108,6 +111,7 @@ def train(
 
             epoch_losses.append(loss.item())
             epoch_correct_symbols += torch.sum(sequence == expected, dim=(0, 1)).item()
+            total_symbols += expected.numel()
 
         mean_epoch_loss = np.mean(epoch_losses)
         losses.append(mean_epoch_loss)
@@ -271,6 +275,7 @@ def main():
         batch_size=options.batch_size,
         shuffle=True,
         num_workers=options.num_workers,
+        collate_fn=collate_batch,
     )
     criterion = nn.CrossEntropyLoss().to(device)
     enc = Encoder(checkpoint=encoder_checkpoint).to(device)
