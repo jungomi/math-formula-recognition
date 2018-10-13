@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from checkpoint import default_checkpoint, load_checkpoint
 from model import Encoder, Decoder
-from dataset import CrohmeDataset, START, SPECIAL_TOKENS
+from dataset import CrohmeDataset, START, PAD, SPECIAL_TOKENS, collate_batch
 
 input_size = (256, 256)
 low_res_shape = (684, input_size[0] // 16, input_size[1] // 16)
@@ -70,7 +70,10 @@ def evaluate(
         input = d["image"].to(device)
         # The last batch may not be a full batch
         curr_batch_size = len(input)
-        expected = torch.stack(d["truth"]["encoded"], dim=1).to(device)
+        expected = d["truth"]["encoded"].to(device)
+        batch_max_len = expected.size(1)
+        # Replace -1 with the PAD token
+        expected[expected == -1] = data_loader.dataset.token_to_id[PAD]
         enc_low_res, enc_high_res = enc(input)
         # Decoder needs to be reset, because the coverage attention (alpha)
         # only applies to the current image.
@@ -84,7 +87,7 @@ def evaluate(
             device=device,
         )
         decoded_values = []
-        for i in range(data_loader.dataset.max_len - 1):
+        for i in range(batch_max_len - 1):
             previous = sequence[:, -1].view(-1, 1)
             out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
             _, top1_id = torch.topk(out, 1)
@@ -216,6 +219,7 @@ def main():
         batch_size=options.batch_size,
         shuffle=False,
         num_workers=options.num_workers,
+        collate_fn=collate_batch,
     )
 
     enc = Encoder(checkpoint=encoder_checkpoint).to(device)
