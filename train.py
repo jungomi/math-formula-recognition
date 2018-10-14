@@ -50,6 +50,7 @@ def train(
     criterion,
     data_loader,
     device,
+    teacher_forcing=False,
     lr_scheduler=None,
     num_epochs=100,
     print_epochs=None,
@@ -96,7 +97,8 @@ def train(
             )
             decoded_values = []
             for i in range(batch_max_len - 1):
-                previous = sequence[:, -1].view(-1, 1)
+                previous = expected[:, i] if teacher_forcing else sequence[:, -1]
+                previous = previous.view(-1, 1)
                 out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
                 _, top1_id = torch.topk(out, 1)
                 sequence = torch.cat((sequence, top1_id), dim=1)
@@ -241,6 +243,12 @@ def parse_args():
         type=str,
         help="Prefix of checkpoint names",
     )
+    parser.add_argument(
+        "--teacher-forcing",
+        dest="teacher_forcing",
+        action="store_true",
+        help="Use teacher forcing by using the expected previous symbol",
+    )
 
     return parser.parse_args()
 
@@ -320,6 +328,7 @@ def main():
         optimiser,
         criterion,
         data_loader,
+        teacher_forcing=options.teacher_forcing,
         lr_scheduler=lr_scheduler,
         print_epochs=options.print_epochs,
         device=device,
