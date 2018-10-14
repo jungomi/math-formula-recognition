@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import random
 import time
 import torch
 import torch.nn as nn
@@ -50,7 +51,7 @@ def train(
     criterion,
     data_loader,
     device,
-    teacher_forcing=False,
+    teacher_forcing_ratio=0.0,
     lr_scheduler=None,
     num_epochs=100,
     print_epochs=None,
@@ -95,9 +96,11 @@ def train(
                 dtype=torch.long,
                 device=device,
             )
+            # The teacher forcing is done per batch, not symbol
+            use_teacher_forcing = random.random() < teacher_forcing_ratio
             decoded_values = []
             for i in range(batch_max_len - 1):
-                previous = expected[:, i] if teacher_forcing else sequence[:, -1]
+                previous = expected[:, i] if use_teacher_forcing else sequence[:, -1]
                 previous = previous.view(-1, 1)
                 out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
                 _, top1_id = torch.topk(out, 1)
@@ -246,8 +249,9 @@ def parse_args():
     parser.add_argument(
         "--teacher-forcing",
         dest="teacher_forcing",
-        action="store_true",
-        help="Use teacher forcing by using the expected previous symbol",
+        default=0.0,
+        type=float,
+        help="Teacher forcing rate to use the expected previous symbol [Default: 0.0]",
     )
 
     return parser.parse_args()
@@ -328,7 +332,7 @@ def main():
         optimiser,
         criterion,
         data_loader,
-        teacher_forcing=options.teacher_forcing,
+        teacher_forcing_ratio=options.teacher_forcing,
         lr_scheduler=lr_scheduler,
         print_epochs=options.print_epochs,
         device=device,
