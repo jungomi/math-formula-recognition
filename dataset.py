@@ -51,14 +51,16 @@ def encode_truth(truth, token_to_id):
     remaining_truth = remove_unknown_tokens(truth).strip()
     while len(remaining_truth) > 0:
         try:
-            index, tok_len = next(
+            matching_starts = [
                 [i, len(tok)]
                 for tok, i in token_to_id.items()
                 if remaining_truth.startswith(tok)
-            )
+            ]
+            # Take the longest match
+            index, tok_len = max(matching_starts, key=lambda match: match[1])
             truth_tokens.append(index)
             remaining_truth = remaining_truth[tok_len:].lstrip()
-        except StopIteration:
+        except ValueError:
             raise Exception("Truth contains unknown token")
     return truth_tokens
 
