@@ -61,7 +61,7 @@ def train(
     if print_epochs is None:
         print_epochs = num_epochs
 
-    writer = init_tensorboard()
+    writer = init_tensorboard(name=prefix.strip("-"))
     start_epoch = checkpoint["epoch"]
     accuracy = checkpoint["accuracy"]
     losses = checkpoint["losses"]
