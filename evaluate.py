@@ -7,7 +7,7 @@ from checkpoint import default_checkpoint, load_checkpoint
 from model import Encoder, Decoder
 from dataset import CrohmeDataset, START, PAD, SPECIAL_TOKENS, collate_batch
 
-input_size = (256, 256)
+input_size = (128, 128)
 low_res_shape = (684, input_size[0] // 16, input_size[1] // 16)
 high_res_shape = (792, input_size[0] // 8, input_size[1] // 8)
 
