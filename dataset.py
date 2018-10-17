@@ -1,7 +1,7 @@
 import csv
 import os
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from torch.utils.data import Dataset
 
 START = "<SOS>"
@@ -135,6 +135,11 @@ class CrohmeDataset(Dataset):
         image = Image.open(item["path"])
         # Convert to Grey-scale
         image = image.convert("RGB")
+
+        # Image needs to be inverted because the bounding box cuts off black pixels, not
+        # white ones.
+        bounding_box = ImageOps.invert(image).getbbox()
+        image = image.crop(bounding_box)
 
         if self.transform:
             image = self.transform(image)
