@@ -251,7 +251,7 @@ def main():
         collate_fn=collate_batch,
     )
 
-    enc = Encoder(checkpoint=encoder_checkpoint).to(device)
+    enc = Encoder(img_channels=3, checkpoint=encoder_checkpoint).to(device)
     dec = Decoder(
         len(dataset.id_to_token),
         low_res_shape,

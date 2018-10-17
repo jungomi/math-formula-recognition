@@ -134,7 +134,7 @@ class CrohmeDataset(Dataset):
         item = self.data[i]
         image = Image.open(item["path"])
         # Convert to Grey-scale
-        image = image.convert("L")
+        image = image.convert("RGB")
 
         if self.transform:
             image = self.transform(image)
