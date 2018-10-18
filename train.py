@@ -29,6 +29,7 @@ learning_rate = 1e-3
 lr_epochs = 3
 lr_factor = 0.1
 weight_decay = 1e-4
+max_grad_norm = 3.0
 
 groundtruth = "./data/groundtruth_train.tsv"
 tokensfile = "./data/tokens.tsv"
@@ -57,6 +58,7 @@ def train(
     print_epochs=None,
     checkpoint=default_checkpoint,
     prefix="",
+    max_grad_norm=max_grad_norm,
 ):
     if print_epochs is None:
         print_epochs = num_epochs
@@ -66,10 +68,15 @@ def train(
     accuracy = checkpoint["accuracy"]
     losses = checkpoint["losses"]
     learning_rates = checkpoint["lr"]
+    grad_norms = checkpoint["grad_norm"]
+    optim_params = [
+        p for param_group in optimiser.param_groups for p in param_group["params"]
+    ]
 
     for epoch in range(num_epochs):
         start_time = time.time()
         epoch_losses = []
+        epoch_grad_norms = []
         epoch_correct_symbols = 0
         total_symbols = 0
 
@@ -112,14 +119,19 @@ def train(
             # decoded_values does not contain the start symbol
             loss = criterion(decoded_values, expected[:, 1:])
             loss.backward()
+            # Clip gradients, it returns the total norm of all parameters
+            grad_norm = nn.utils.clip_grad_norm_(optim_params, max_norm=max_grad_norm)
             optimiser.step()
 
             epoch_losses.append(loss.item())
+            epoch_grad_norms.append(grad_norm)
             epoch_correct_symbols += torch.sum(sequence == expected, dim=(0, 1)).item()
             total_symbols += expected.numel()
 
         mean_epoch_loss = np.mean(epoch_losses)
+        mean_epoch_grad_norm = np.mean(epoch_grad_norms)
         losses.append(mean_epoch_loss)
+        grad_norms.append(mean_epoch_grad_norm)
         epoch_accuracy = epoch_correct_symbols / total_symbols
         accuracy.append(epoch_accuracy)
         epoch_lr = lr_scheduler.get_lr()[0]
@@ -131,6 +143,7 @@ def train(
                 "losses": losses,
                 "accuracy": accuracy,
                 "lr": learning_rates,
+                "grad_norm": grad_norms,
                 "model": {"encoder": enc.state_dict(), "decoder": dec.state_dict()},
                 "optimiser": optimiser.state_dict(),
             },
@@ -156,7 +169,15 @@ def train(
                     time=elapsed_time,
                 )
             )
-            write_tensorboard(writer, epoch, mean_epoch_loss, epoch_accuracy, enc, dec)
+            write_tensorboard(
+                writer,
+                epoch,
+                mean_epoch_loss,
+                epoch_accuracy,
+                mean_epoch_grad_norm,
+                enc,
+                dec,
+            )
 
     return np.array(losses), np.array(accuracy)
 
@@ -253,6 +274,15 @@ def parse_args():
         type=float,
         help="Teacher forcing rate to use the expected previous symbol [Default: 0.0]",
     )
+    parser.add_argument(
+        "--max-grad-norm",
+        dest="max_grad_norm",
+        default=max_grad_norm,
+        type=float,
+        help="Maximum norm of gradients for gradient clipping [Default: {}]".format(
+            max_grad_norm
+        ),
+    )
 
     return parser.parse_args()
 
@@ -339,6 +369,7 @@ def main():
         num_epochs=options.num_epochs,
         checkpoint=checkpoint,
         prefix=options.prefix,
+        max_grad_norm=options.max_grad_norm,
     )
 
 
