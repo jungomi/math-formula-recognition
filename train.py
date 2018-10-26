@@ -110,6 +110,7 @@ def train(
                 previous = expected[:, i] if use_teacher_forcing else sequence[:, -1]
                 previous = previous.view(-1, 1)
                 out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
+                hidden = hidden.detach()
                 _, top1_id = torch.topk(out, 1)
                 sequence = torch.cat((sequence, top1_id), dim=1)
                 decoded_values.append(out)

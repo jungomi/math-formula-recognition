@@ -254,7 +254,7 @@ class CoverageAttention(nn.Module):
         tan_res = torch.tanh(u_pred_expanded + u_a + u_f)
         e_t = torch.matmul(self.nu_attn, tan_res)
         alpha_t = torch.softmax(e_t, dim=1)
-        self.alpha = torch.cat((self.alpha, alpha_t.unsqueeze(1)), dim=1)
+        self.alpha = torch.cat((self.alpha, alpha_t.detach().unsqueeze(1)), dim=1)
         # alpha_t: (batch_size x L)
         # a: (batch_size x C x L) but need (C x batch_size x L) for
         # element-wise multiplication. So transpose them.
