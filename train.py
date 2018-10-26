@@ -172,7 +172,7 @@ def train(
             )
             write_tensorboard(
                 writer,
-                epoch,
+                start_epoch + epoch + 1,
                 mean_epoch_loss,
                 epoch_accuracy,
                 mean_epoch_grad_norm,
