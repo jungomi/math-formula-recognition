@@ -91,16 +91,19 @@ class DenseBlock(nn.Module):
     A dense block stacks several bottleneck blocks.
     """
 
-    def __init__(self, input_size, growth_rate, depth):
+    def __init__(self, input_size, growth_rate, depth, dropout_rate=0.2):
         """
         Args:
             input_size (int): Number of channels of the input
             growth_rate (int): Number of new features being added per bottleneck block
             depth (int): Number of bottleneck blocks
+            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
         """
         super(DenseBlock, self).__init__()
         layers = [
-            BottleneckBlock(input_size + i * growth_rate, growth_rate)
+            BottleneckBlock(
+                input_size + i * growth_rate, growth_rate, dropout_rate=dropout_rate
+            )
             for i in range(depth)
         ]
         self.block = nn.Sequential(*layers)
@@ -141,11 +144,21 @@ class Encoder(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.max_pool = nn.MaxPool2d(kernel_size=2, stride=2)
         num_features = num_in_features
-        self.block1 = DenseBlock(num_features, growth_rate=growth_rate, depth=depth)
+        self.block1 = DenseBlock(
+            num_features,
+            growth_rate=growth_rate,
+            depth=depth,
+            dropout_rate=dropout_rate,
+        )
         num_features = num_features + depth * growth_rate
         self.trans1 = TransitionBlock(num_features, num_features // 2)
         num_features = num_features // 2
-        self.block2 = DenseBlock(num_features, growth_rate=growth_rate, depth=depth)
+        self.block2 = DenseBlock(
+            num_features,
+            growth_rate=growth_rate,
+            depth=depth,
+            dropout_rate=dropout_rate,
+        )
 
         num_features = num_features + depth * growth_rate
         self.trans2_norm = nn.BatchNorm2d(num_features)
@@ -155,10 +168,18 @@ class Encoder(nn.Module):
         )
         self.trans2_pool = nn.AvgPool2d(kernel_size=2, stride=2)
         self.multi_block = DenseBlock(
-            num_features, growth_rate=growth_rate, depth=multi_block_depth
+            num_features,
+            growth_rate=growth_rate,
+            depth=multi_block_depth,
+            dropout_rate=dropout_rate,
         )
         num_features = num_features // 2
-        self.block3 = DenseBlock(num_features, growth_rate=growth_rate, depth=depth)
+        self.block3 = DenseBlock(
+            num_features,
+            growth_rate=growth_rate,
+            depth=depth,
+            dropout_rate=dropout_rate,
+        )
         self.dropout = nn.Dropout(dropout_rate)
 
         if checkpoint is not None:
@@ -298,6 +319,7 @@ class Decoder(nn.Module):
         high_res_shape,
         hidden_size=256,
         embedding_dim=256,
+        dropout_rate=0.2,
         checkpoint=None,
         device=device,
     ):
@@ -310,6 +332,7 @@ class Decoder(nn.Module):
                 i.e. (C_prime, 2W, 2H)
             hidden_size (int, optional): Hidden size of the GRU [Default: 256]
             embedding_dim (int, optional): Dimension of the embedding [Default: 256]
+            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
             checkpoint (dict, optional): State dictionary to be loaded
             device (torch.device, optional): Device for the tensors
         """
@@ -333,6 +356,7 @@ class Decoder(nn.Module):
             attn_size=low_res_attn_size,
             kernel_size=(11, 11),
             padding=5,
+            dropout_rate=dropout_rate,
             device=device,
         )
         self.coverage_attn_high = CoverageAttention(
@@ -341,6 +365,7 @@ class Decoder(nn.Module):
             attn_size=high_res_attn_size,
             kernel_size=(7, 7),
             padding=3,
+            dropout_rate=dropout_rate,
             device=device,
         )
         self.W_o = nn.Parameter(torch.randn((num_classes, embedding_dim // 2)))
