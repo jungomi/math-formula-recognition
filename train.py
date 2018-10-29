@@ -30,6 +30,7 @@ lr_epochs = 3
 lr_factor = 0.1
 weight_decay = 1e-4
 max_grad_norm = 3.0
+dropout_rate = 0.2
 
 groundtruth = "./data/groundtruth_train.tsv"
 tokensfile = "./data/tokens.tsv"
@@ -284,6 +285,13 @@ def parse_args():
             max_grad_norm
         ),
     )
+    parser.add_argument(
+        "--dropout",
+        dest="dropout_rate",
+        default=dropout_rate,
+        type=float,
+        help="Probability of using dropout [Default: {}]".format(dropout_rate),
+    )
 
     return parser.parse_args()
 
@@ -321,11 +329,14 @@ def main():
         collate_fn=collate_batch,
     )
     criterion = nn.CrossEntropyLoss(ignore_index=dataset.token_to_id[PAD]).to(device)
-    enc = Encoder(img_channels=3, checkpoint=encoder_checkpoint).to(device)
+    enc = Encoder(
+        img_channels=3, dropout_rate=options.dropout_rate, checkpoint=encoder_checkpoint
+    ).to(device)
     dec = Decoder(
         len(dataset.id_to_token),
         low_res_shape,
         high_res_shape,
+        dropout_rate=options.dropout_rate,
         checkpoint=decoder_checkpoint,
         device=device,
     ).to(device)
