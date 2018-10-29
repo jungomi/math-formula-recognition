@@ -31,6 +31,7 @@ lr_factor = 0.1
 weight_decay = 1e-4
 max_grad_norm = 3.0
 dropout_rate = 0.2
+seed = 1234
 
 groundtruth = "./data/groundtruth_train.tsv"
 tokensfile = "./data/tokens.tsv"
@@ -292,12 +293,21 @@ def parse_args():
         type=float,
         help="Probability of using dropout [Default: {}]".format(dropout_rate),
     )
+    parser.add_argument(
+        "-s",
+        "--seed",
+        dest="seed",
+        default=seed,
+        type=int,
+        help="Seed for random initialisation [Default: {}]".format(seed),
+    )
 
     return parser.parse_args()
 
 
 def main():
     options = parse_args()
+    torch.manual_seed(options.seed)
     hardware = "cuda" if use_cuda and not options.no_cuda else "cpu"
     device = torch.device(hardware)
 
