@@ -236,14 +236,18 @@ class CoverageAttention(nn.Module):
         super(CoverageAttention, self).__init__()
         self.alpha = None
         self.conv = nn.Conv2d(1, output_size, kernel_size=kernel_size, padding=padding)
-        self.U_a = nn.Parameter(torch.randn((n_prime, input_size)))
-        self.U_f = nn.Parameter(torch.randn((n_prime, output_size)))
-        self.nu_attn = nn.Parameter(torch.randn(n_prime))
+        self.U_a = nn.Parameter(torch.empty((n_prime, input_size)))
+        self.U_f = nn.Parameter(torch.empty((n_prime, output_size)))
+        self.nu_attn = nn.Parameter(torch.empty(n_prime))
         self.dropout = nn.Dropout(dropout_rate)
         self.input_size = input_size
         self.output_size = output_size
         self.attn_size = attn_size
         self.device = device
+        nn.init.xavier_normal_(self.U_a)
+        nn.init.xavier_normal_(self.U_f)
+        # Xavier requires at least a 2D tensor.
+        nn.init.xavier_normal_(self.nu_attn.unsqueeze(0))
 
     def reset_alpha(self, batch_size):
         self.alpha = torch.zeros((batch_size, 1, self.attn_size), device=self.device)
@@ -368,12 +372,16 @@ class Decoder(nn.Module):
             dropout_rate=dropout_rate,
             device=device,
         )
-        self.W_o = nn.Parameter(torch.randn((num_classes, embedding_dim // 2)))
-        self.W_s = nn.Parameter(torch.randn((embedding_dim, hidden_size)))
-        self.W_c = nn.Parameter(torch.randn((embedding_dim, context_size)))
-        self.U_pred = nn.Parameter(torch.randn((n_prime, n)))
+        self.W_o = nn.Parameter(torch.empty((num_classes, embedding_dim // 2)))
+        self.W_s = nn.Parameter(torch.empty((embedding_dim, hidden_size)))
+        self.W_c = nn.Parameter(torch.empty((embedding_dim, context_size)))
+        self.U_pred = nn.Parameter(torch.empty((n_prime, n)))
         self.maxout = Maxout(2)
         self.hidden_size = hidden_size
+        nn.init.xavier_normal_(self.W_o)
+        nn.init.xavier_normal_(self.W_s)
+        nn.init.xavier_normal_(self.W_c)
+        nn.init.xavier_normal_(self.U_pred)
 
         if checkpoint is not None:
             self.load_state_dict(checkpoint)
