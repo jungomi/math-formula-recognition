@@ -40,7 +40,7 @@ use_cuda = torch.cuda.is_available()
 
 transformers = transforms.Compose(
     [
-        # Resize to 256x256 so all images have the same size
+        # Resize so all images have the same size
         transforms.Resize(input_size),
         transforms.ToTensor(),
     ]

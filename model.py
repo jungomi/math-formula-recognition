@@ -393,20 +393,15 @@ class Decoder(nn.Module):
         self.coverage_attn_low.reset_alpha(batch_size)
         self.coverage_attn_high.reset_alpha(batch_size)
 
-    # TODO: Figure out what to do with the new hidden state returned from the
-    # GRUs. Apparently they aren't kept, since the new hidden state of the
-    # decoder is the output of the second GRU.
-    #
     # Unsqueeze and squeeze are used to add and remove the seq_len dimension,
-    # which is always 1 since there only the previous symbol is provided, not
-    # a sequence.
+    # which is always 1 since only the previous symbol is provided, not a sequence.
     # The inputs that are multiplied by the weights are transposed to get
     # (m x batch_size) instead of (batch_size x m). The result of the
     # multiplication is tranposed back.
     def forward(self, x, hidden, low_res, high_res):
         embedded = self.embedding(x)
         pred, _ = self.gru1(embedded, hidden)
-        # u_pred is computed here instead of in the coverage attention, because they
+        # u_pred is computed here instead of in the coverage attention, because the
         # weight U_pred is shared and the coverage attention does not use pred for
         # anything else. This avoids computing it twice.
         u_pred = torch.matmul(self.U_pred, pred.squeeze(1).t()).t()

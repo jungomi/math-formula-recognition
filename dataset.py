@@ -133,7 +133,7 @@ class CrohmeDataset(Dataset):
     def __getitem__(self, i):
         item = self.data[i]
         image = Image.open(item["path"])
-        # Convert to Grey-scale
+        # Remove alpha channel
         image = image.convert("RGB")
 
         # Image needs to be inverted because the bounding box cuts off black pixels, not
