@@ -1,4 +1,5 @@
 import argparse
+import multiprocessing
 import numpy as np
 import random
 import time
@@ -22,15 +23,16 @@ low_res_shape = (684, input_size[0] // 16, input_size[1] // 16)
 high_res_shape = (792, input_size[0] // 8, input_size[1] // 8)
 
 batch_size = 4
-num_workers = 4
-num_epochs = 10
+num_workers = multiprocessing.cpu_count()
+num_epochs = 100
 print_epochs = 1
 learning_rate = 1e-3
-lr_epochs = 3
+lr_epochs = 20
 lr_factor = 0.1
 weight_decay = 1e-4
-max_grad_norm = 3.0
+max_grad_norm = 5.0
 dropout_rate = 0.2
+teacher_forcing_ratio = 0.5
 seed = 1234
 
 groundtruth = "./data/groundtruth_train.tsv"
@@ -54,7 +56,7 @@ def train(
     criterion,
     data_loader,
     device,
-    teacher_forcing_ratio=0.0,
+    teacher_forcing_ratio=teacher_forcing_ratio,
     lr_scheduler=None,
     num_epochs=100,
     print_epochs=None,
@@ -273,9 +275,11 @@ def parse_args():
     parser.add_argument(
         "--teacher-forcing",
         dest="teacher_forcing",
-        default=0.0,
+        default=teacher_forcing_ratio,
         type=float,
-        help="Teacher forcing rate to use the expected previous symbol [Default: 0.0]",
+        help="Ratio to use the previous expected symbol [Default: {}]".format(
+            teacher_forcing_ratio
+        ),
     )
     parser.add_argument(
         "--max-grad-norm",
