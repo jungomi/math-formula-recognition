@@ -338,7 +338,7 @@ def main():
         num_workers=options.num_workers,
         collate_fn=collate_batch,
     )
-    criterion = nn.CrossEntropyLoss(ignore_index=dataset.token_to_id[PAD]).to(device)
+    criterion = nn.CrossEntropyLoss().to(device)
     enc = Encoder(
         img_channels=3, dropout_rate=options.dropout_rate, checkpoint=encoder_checkpoint
     ).to(device)
