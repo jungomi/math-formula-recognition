@@ -95,19 +95,29 @@ def collate_batch(data):
 class CrohmeDataset(Dataset):
     """Dataset CROHME's handwritten mathematical formulas"""
 
-    def __init__(self, groundtruth, tokens_file, root=None, ext=".png", transform=None):
+    def __init__(
+        self,
+        groundtruth,
+        tokens_file,
+        root=None,
+        ext=".png",
+        crop=False,
+        transform=None,
+    ):
         """
         Args:
             groundtruth (string): Path to ground truth TSV file
             tokens_file (string): Path to tokens text file
             root (string): Path of the root directory of the dataset
             ext (string): Extension of the input files
+            crop (bool, optional): Crop images to their bounding boxes [Default: False]
             transform (callable, optional): Optional transform to be applied
                 on a sample.
         """
         super(CrohmeDataset, self).__init__()
         if root is None:
             root = os.path.dirname(groundtruth)
+        self.crop = crop
         self.transform = transform
         self.token_to_id, self.id_to_token = load_vocab(tokens_file)
         with open(groundtruth, "r") as fd:
@@ -136,10 +146,11 @@ class CrohmeDataset(Dataset):
         # Remove alpha channel
         image = image.convert("RGB")
 
-        # Image needs to be inverted because the bounding box cuts off black pixels, not
-        # white ones.
-        bounding_box = ImageOps.invert(image).getbbox()
-        image = image.crop(bounding_box)
+        if self.crop:
+            # Image needs to be inverted because the bounding box cuts off black pixels,
+            # not white ones.
+            bounding_box = ImageOps.invert(image).getbbox()
+            image = image.crop(bounding_box)
 
         if self.transform:
             image = self.transform(image)
