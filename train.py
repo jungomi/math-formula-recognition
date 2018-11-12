@@ -323,6 +323,12 @@ def parse_args():
         type=int,
         help="Seed for random initialisation [Default: {}]".format(seed),
     )
+    parser.add_argument(
+        "--crop",
+        dest="crop",
+        action="store_true",
+        help="Crop images to their bounding boxes",
+    )
 
     return parser.parse_args()
 
@@ -352,7 +358,9 @@ def main():
             )
         )
 
-    dataset = CrohmeDataset(groundtruth, tokensfile, root=root, transform=transformers)
+    dataset = CrohmeDataset(
+        groundtruth, tokensfile, root=root, crop=options.crop, transform=transformers
+    )
     data_loader = DataLoader(
         dataset,
         batch_size=options.batch_size,
