@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from tqdm import tqdm
 from checkpoint import (
     default_checkpoint,
     load_checkpoint,
@@ -87,51 +88,71 @@ def train(
         if lr_scheduler:
             lr_scheduler.step()
 
-        for d in data_loader:
-            input = d["image"].to(device)
-            # The last batch may not be a full batch
-            curr_batch_size = len(input)
-            expected = d["truth"]["encoded"].to(device)
-            batch_max_len = expected.size(1)
-            # Replace -1 with the PAD token
-            expected[expected == -1] = data_loader.dataset.token_to_id[PAD]
-            enc_low_res, enc_high_res = enc(input)
-            # Decoder needs to be reset, because the coverage attention (alpha)
-            # only applies to the current image.
-            dec.reset(curr_batch_size)
-            hidden = dec.init_hidden(curr_batch_size).to(device)
-            # Starts with a START token
-            sequence = torch.full(
-                (curr_batch_size, 1),
-                data_loader.dataset.token_to_id[START],
-                dtype=torch.long,
-                device=device,
-            )
-            # The teacher forcing is done per batch, not symbol
-            use_teacher_forcing = random.random() < teacher_forcing_ratio
-            decoded_values = []
-            for i in range(batch_max_len - 1):
-                previous = expected[:, i] if use_teacher_forcing else sequence[:, -1]
-                previous = previous.view(-1, 1)
-                out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
-                hidden = hidden.detach()
-                _, top1_id = torch.topk(out, 1)
-                sequence = torch.cat((sequence, top1_id), dim=1)
-                decoded_values.append(out)
+        epoch_text = "[{current:>{pad}}/{end}] Epoch {epoch}".format(
+            current=epoch + 1,
+            end=num_epochs,
+            epoch=start_epoch + epoch + 1,
+            pad=len(str(num_epochs)),
+        )
 
-            decoded_values = torch.stack(decoded_values, dim=2).to(device)
-            optimiser.zero_grad()
-            # decoded_values does not contain the start symbol
-            loss = criterion(decoded_values, expected[:, 1:])
-            loss.backward()
-            # Clip gradients, it returns the total norm of all parameters
-            grad_norm = nn.utils.clip_grad_norm_(optim_params, max_norm=max_grad_norm)
-            optimiser.step()
+        with tqdm(
+            desc=epoch_text,
+            total=len(data_loader.dataset),
+            dynamic_ncols=True,
+            leave=False,
+        ) as pbar:
+            for d in data_loader:
+                input = d["image"].to(device)
+                # The last batch may not be a full batch
+                curr_batch_size = len(input)
+                expected = d["truth"]["encoded"].to(device)
+                batch_max_len = expected.size(1)
+                # Replace -1 with the PAD token
+                expected[expected == -1] = data_loader.dataset.token_to_id[PAD]
+                enc_low_res, enc_high_res = enc(input)
+                # Decoder needs to be reset, because the coverage attention (alpha)
+                # only applies to the current image.
+                dec.reset(curr_batch_size)
+                hidden = dec.init_hidden(curr_batch_size).to(device)
+                # Starts with a START token
+                sequence = torch.full(
+                    (curr_batch_size, 1),
+                    data_loader.dataset.token_to_id[START],
+                    dtype=torch.long,
+                    device=device,
+                )
+                # The teacher forcing is done per batch, not symbol
+                use_teacher_forcing = random.random() < teacher_forcing_ratio
+                decoded_values = []
+                for i in range(batch_max_len - 1):
+                    previous = (
+                        expected[:, i] if use_teacher_forcing else sequence[:, -1]
+                    )
+                    previous = previous.view(-1, 1)
+                    out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
+                    hidden = hidden.detach()
+                    _, top1_id = torch.topk(out, 1)
+                    sequence = torch.cat((sequence, top1_id), dim=1)
+                    decoded_values.append(out)
 
-            epoch_losses.append(loss.item())
-            epoch_grad_norms.append(grad_norm)
-            epoch_correct_symbols += torch.sum(sequence == expected, dim=(0, 1)).item()
-            total_symbols += expected.numel()
+                decoded_values = torch.stack(decoded_values, dim=2).to(device)
+                optimiser.zero_grad()
+                # decoded_values does not contain the start symbol
+                loss = criterion(decoded_values, expected[:, 1:])
+                loss.backward()
+                # Clip gradients, it returns the total norm of all parameters
+                grad_norm = nn.utils.clip_grad_norm_(
+                    optim_params, max_norm=max_grad_norm
+                )
+                optimiser.step()
+
+                epoch_losses.append(loss.item())
+                epoch_grad_norms.append(grad_norm)
+                epoch_correct_symbols += torch.sum(
+                    sequence == expected, dim=(0, 1)
+                ).item()
+                total_symbols += expected.numel()
+                pbar.update(curr_batch_size)
 
         mean_epoch_loss = np.mean(epoch_losses)
         mean_epoch_grad_norm = np.mean(epoch_grad_norms)
@@ -159,15 +180,12 @@ def train(
         elapsed_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
         if epoch % print_epochs == 0 or epoch == num_epochs - 1:
             print(
-                "[{current:>{pad}}/{end}] Epoch {epoch}: "
+                "{epoch_text}: "
                 "Accuracy = {accuracy:.5f}, "
                 "Loss = {loss:.5f}, "
                 "lr = {lr} "
                 "(time elapsed {time})".format(
-                    current=epoch + 1,
-                    end=num_epochs,
-                    epoch=start_epoch + epoch + 1,
-                    pad=len(str(num_epochs)),
+                    epoch_text=epoch_text,
                     accuracy=epoch_accuracy,
                     loss=mean_epoch_loss,
                     lr=epoch_lr,
