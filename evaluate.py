@@ -225,11 +225,12 @@ def parse_args():
 
 def main():
     options = parse_args()
-    hardware = "cuda" if use_cuda and not options.no_cuda else "cpu"
+    is_cuda = use_cuda and not options.no_cuda
+    hardware = "cuda" if is_cuda else "cpu"
     device = torch.device(hardware)
 
     checkpoint = (
-        load_checkpoint(options.checkpoint)
+        load_checkpoint(options.checkpoint, cuda=is_cuda)
         if options.checkpoint
         else default_checkpoint
     )
