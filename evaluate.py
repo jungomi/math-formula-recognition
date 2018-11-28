@@ -15,6 +15,7 @@ batch_size = 4
 num_workers = 4
 
 test_sets = {
+    "train": {"groundtruth": "./data/groundtruth_train.tsv", "root": "./data/train/"},
     "2013": {"groundtruth": "./data/groundtruth_2013.tsv", "root": "./data/test/2013/"},
     "2014": {"groundtruth": "./data/groundtruth_2014.tsv", "root": "./data/test/2014/"},
     "2016": {"groundtruth": "./data/groundtruth_2016.tsv", "root": "./data/test/2016/"},
@@ -196,7 +197,7 @@ def parse_args():
         default="2016",
         type=str,
         choices=test_sets.keys(),
-        help="Dataset used for evaluation (year) [default: {}]".format("2016"),
+        help="Dataset used for evaluation [default: {}]".format("2016"),
     )
     parser.add_argument(
         "-w",
