@@ -64,7 +64,9 @@ def remove_special_tokens(tokens, special_tokens=SPECIAL_TOKENS, strip_only=Fals
             num_right += 1
         return tokens[num_left:-num_right]
     else:
-        return torch.tensor([tok for tok in tokens if tok not in special_tokens])
+        return torch.tensor(
+            [tok for tok in tokens if tok not in special_tokens], dtype=tokens.dtype
+        )
 
 
 def calc_distances(actual, expected):
@@ -82,6 +84,7 @@ def evaluate(
     correct_tokens = 0
     distance = {"full": 0, "removed": 0, "stripped": 0, "symbols": 0}
     num_tokens = {"full": 0, "removed": 0, "stripped": 0, "symbols": 0}
+    correct = {"full": 0, "removed": 0, "stripped": 0, "symbols": 0, "total": 0}
 
     for d in data_loader:
         input = d["image"].to(device)
@@ -141,6 +144,29 @@ def evaluate(
         distance["removed"] += sum(distances_removed)
         distance["stripped"] += sum(distances_stripped)
         distance["symbols"] += sum(distances_symbols)
+        correct["full"] += sum(
+            [torch.equal(seq, exp) for seq, exp in zip(sequence, expected)]
+        )
+        correct["removed"] += sum(
+            [
+                torch.equal(seq, exp)
+                for seq, exp in zip(sequence_removed, expected_removed)
+            ]
+        )
+        correct["stripped"] += sum(
+            [
+                torch.equal(seq, exp)
+                for seq, exp in zip(sequence_stripped, expected_stripped)
+            ]
+        )
+        correct["symbols"] += sum(
+            [
+                torch.equal(seq, exp)
+                for seq, exp in zip(sequence_symbols, expected_symbols)
+            ]
+        )
+        correct["total"] += len(expected_symbols)
+
         # Can't use .numel() for the removed / stripped versions, because they can't
         # be converted to a tensor (stacked), as they may not have the same length.
         # Instead it's a list of tensors.
@@ -155,21 +181,29 @@ def evaluate(
         "============\n"
         "Accuracy = {full_accuracy}\n"
         "Error Rate = {full_error}\n"
+        "Correct Expressions = {full_correct}\n"
         "\nToken - Removed special tokens\n"
         "==============================\n"
         "Error Rate = {removed_error}\n"
+        "Correct Expressions = {removed_correct}\n"
         "\nToken - Stripped special tokens\n"
         "===============================\n"
         "Error Rate = {stripped_error}\n"
+        "Correct Expressions = {stripped_correct}\n"
         "\nSymbols\n"
         "=======\n"
-        "Error Rate = {symbols_error}\n".format(
+        "Error Rate = {symbols_error}\n"
+        "Correct Expressions = {symbols_correct}".format(
             name=name,
             full_accuracy=correct_tokens / num_tokens["full"],
             full_error=distance["full"] / num_tokens["full"],
             removed_error=distance["removed"] / num_tokens["removed"],
             stripped_error=distance["stripped"] / num_tokens["stripped"],
             symbols_error=distance["symbols"] / num_tokens["symbols"],
+            full_correct=correct["full"] / correct["total"],
+            removed_correct=correct["removed"] / correct["total"],
+            stripped_correct=correct["stripped"] / correct["total"],
+            symbols_correct=correct["symbols"] / correct["total"],
         )
     )
 
