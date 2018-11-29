@@ -377,7 +377,6 @@ def main():
         len(dataset.id_to_token),
         low_res_shape,
         high_res_shape,
-        dropout_rate=options.dropout_rate,
         checkpoint=decoder_checkpoint,
         device=device,
     ).to(device)

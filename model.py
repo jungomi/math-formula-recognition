@@ -48,7 +48,6 @@ class BottleneckBlock(nn.Module):
 
     def forward(self, x):
         out = self.conv1(self.relu(self.norm1(x)))
-        out = self.dropout(out)
         out = self.conv2(self.relu(self.norm2(out)))
         out = self.dropout(out)
         return torch.cat([x, out], 1)
@@ -62,12 +61,11 @@ class TransitionBlock(nn.Module):
     blocks.
     """
 
-    def __init__(self, input_size, output_size, dropout_rate=0.2):
+    def __init__(self, input_size, output_size):
         """
         Args:
             input_size (int): Number of channels of the input
             output_size (int): Number of channels of the output
-            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
         """
         super(TransitionBlock, self).__init__()
         self.norm = nn.BatchNorm2d(input_size)
@@ -76,11 +74,9 @@ class TransitionBlock(nn.Module):
             input_size, output_size, kernel_size=1, stride=1, bias=False
         )
         self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
-        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
         out = self.conv(self.relu(self.norm(x)))
-        out = self.dropout(out)
         return self.pool(out)
 
 
@@ -180,14 +176,12 @@ class Encoder(nn.Module):
             depth=depth,
             dropout_rate=dropout_rate,
         )
-        self.dropout = nn.Dropout(dropout_rate)
 
         if checkpoint is not None:
             self.load_state_dict(checkpoint)
 
     def forward(self, x):
         out = self.conv0(x)
-        out = self.dropout(out)
         out = self.relu(self.norm0(out))
         out = self.max_pool(out)
         out = self.block1(out)
@@ -195,7 +189,6 @@ class Encoder(nn.Module):
         out = self.block2(out)
         out_before_trans2 = self.trans2_relu(self.trans2_norm(out))
         out_A = self.trans2_conv(out_before_trans2)
-        out_A = self.dropout(out_A)
         out_A = self.trans2_pool(out_A)
         out_A = self.block3(out_A)
         out_B = self.multi_block(out_before_trans2)
@@ -220,7 +213,6 @@ class CoverageAttention(nn.Module):
         attn_size,
         kernel_size,
         padding=0,
-        dropout_rate=0.2,
         device=device,
     ):
         """
@@ -230,7 +222,6 @@ class CoverageAttention(nn.Module):
             attn_size (int): Length of the annotation vector
             kernel_size (int): Kernel size of the 1D convolutional layer
             padding (int, optional): Padding of the 1D convolutional layer [Default: 0]
-            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
             device (torch.device, optional): Device for the tensors
         """
         super(CoverageAttention, self).__init__()
@@ -239,7 +230,6 @@ class CoverageAttention(nn.Module):
         self.U_a = nn.Parameter(torch.empty((n_prime, input_size)))
         self.U_f = nn.Parameter(torch.empty((n_prime, output_size)))
         self.nu_attn = nn.Parameter(torch.empty(n_prime))
-        self.dropout = nn.Dropout(dropout_rate)
         self.input_size = input_size
         self.output_size = output_size
         self.attn_size = attn_size
@@ -261,7 +251,6 @@ class CoverageAttention(nn.Module):
         # To: (batch_size x H x W)
         alpha_sum = self.alpha.sum(1).view(batch_size, x.size(2), x.size(3))
         conv_out = self.conv(alpha_sum.unsqueeze(1))
-        conv_out = self.dropout(conv_out)
         # Change dimensions back
         # From: (batch_size x output_size x H x W)
         # To: (batch_size x output_size x L)
@@ -323,7 +312,6 @@ class Decoder(nn.Module):
         high_res_shape,
         hidden_size=256,
         embedding_dim=256,
-        dropout_rate=0.2,
         checkpoint=None,
         device=device,
     ):
@@ -336,7 +324,6 @@ class Decoder(nn.Module):
                 i.e. (C_prime, 2W, 2H)
             hidden_size (int, optional): Hidden size of the GRU [Default: 256]
             embedding_dim (int, optional): Dimension of the embedding [Default: 256]
-            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
             checkpoint (dict, optional): State dictionary to be loaded
             device (torch.device, optional): Device for the tensors
         """
@@ -360,7 +347,6 @@ class Decoder(nn.Module):
             attn_size=low_res_attn_size,
             kernel_size=(11, 11),
             padding=5,
-            dropout_rate=dropout_rate,
             device=device,
         )
         self.coverage_attn_high = CoverageAttention(
@@ -369,7 +355,6 @@ class Decoder(nn.Module):
             attn_size=high_res_attn_size,
             kernel_size=(7, 7),
             padding=3,
-            dropout_rate=dropout_rate,
             device=device,
         )
         self.W_o = nn.Parameter(torch.empty((num_classes, embedding_dim // 2)))
