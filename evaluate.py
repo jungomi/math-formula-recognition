@@ -228,9 +228,10 @@ def parse_args():
         "-d",
         "--dataset",
         dest="dataset",
-        default="2016",
+        default=["2016"],
         type=str,
         choices=test_sets.keys(),
+        nargs="+",
         help="Dataset used for evaluation [default: {}]".format("2016"),
     )
     parser.add_argument(
@@ -272,41 +273,42 @@ def main():
     encoder_checkpoint = checkpoint["model"].get("encoder")
     decoder_checkpoint = checkpoint["model"].get("decoder")
 
-    test_set = test_sets[options.dataset]
-    dataset = CrohmeDataset(
-        test_set["groundtruth"],
-        tokensfile,
-        root=test_set["root"],
-        transform=transformers,
-    )
-    data_loader = DataLoader(
-        dataset,
-        batch_size=options.batch_size,
-        shuffle=False,
-        num_workers=options.num_workers,
-        collate_fn=collate_batch,
-    )
+    for dataset_name in options.dataset:
+        test_set = test_sets[dataset_name]
+        dataset = CrohmeDataset(
+            test_set["groundtruth"],
+            tokensfile,
+            root=test_set["root"],
+            transform=transformers,
+        )
+        data_loader = DataLoader(
+            dataset,
+            batch_size=options.batch_size,
+            shuffle=False,
+            num_workers=options.num_workers,
+            collate_fn=collate_batch,
+        )
 
-    enc = Encoder(img_channels=3, checkpoint=encoder_checkpoint).to(device)
-    dec = Decoder(
-        len(dataset.id_to_token),
-        low_res_shape,
-        high_res_shape,
-        checkpoint=decoder_checkpoint,
-        device=device,
-    ).to(device)
-    enc.eval()
-    dec.eval()
+        enc = Encoder(img_channels=3, checkpoint=encoder_checkpoint).to(device)
+        dec = Decoder(
+            len(dataset.id_to_token),
+            low_res_shape,
+            high_res_shape,
+            checkpoint=decoder_checkpoint,
+            device=device,
+        ).to(device)
+        enc.eval()
+        dec.eval()
 
-    evaluate(
-        enc,
-        dec,
-        name=options.dataset,
-        data_loader=data_loader,
-        device=device,
-        checkpoint=checkpoint,
-        prefix=options.prefix,
-    )
+        evaluate(
+            enc,
+            dec,
+            name=dataset_name,
+            data_loader=data_loader,
+            device=device,
+            checkpoint=checkpoint,
+            prefix=options.prefix,
+        )
 
 
 if __name__ == "__main__":
