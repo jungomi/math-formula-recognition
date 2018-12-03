@@ -1,5 +1,6 @@
 import argparse
 import editdistance
+import re
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -76,9 +77,60 @@ def calc_distances(actual, expected):
     ]
 
 
-def evaluate(
-    enc, dec, name, data_loader, device, checkpoint=default_checkpoint, prefix=""
-):
+def to_percent(decimal, precision=2):
+    after_decimal_point = 10 ** precision
+    shifted = decimal * 100 * after_decimal_point
+    percent = round(shifted) / after_decimal_point
+    return "{value:.{precision}f}%".format(value=percent, precision=precision)
+
+
+def create_markdown_tables(result):
+    err_token = "Token error rate"
+    err_no_special = "Token error rate (no speical tokens)"
+    err_symbol = "Symbol error rate"
+    err_header = "| {token} | {no_special} | {symbol} |".format(
+        token=err_token, no_special=err_no_special, symbol=err_symbol
+    )
+    err_delimiter = re.sub("[^|]", "-", err_header)
+    err_values = (
+        "| {token:>{token_pad}} "
+        "| {no_special:>{no_special_pad}} "
+        "| {symbol:>{symbol_pad}} |"
+    ).format(
+        token=to_percent(result["error"]["full"]),
+        no_special=to_percent(result["error"]["removed"]),
+        symbol=to_percent(result["error"]["symbols"]),
+        token_pad=len(err_token),
+        no_special_pad=len(err_no_special),
+        symbol_pad=len(err_symbol),
+    )
+    err_table = "\n".join([err_header, err_delimiter, err_values])
+
+    correct_token = "Correct expressions"
+    correct_no_special = "Correct expressions (no special tokens)"
+    correct_symbol = "Correct expressions (Symbols)"
+    correct_header = "| {token} | {no_special} | {symbol} |".format(
+        token=correct_token, no_special=correct_no_special, symbol=correct_symbol
+    )
+    correct_delimiter = re.sub("[^|]", "-", correct_header)
+    correct_values = (
+        "| {token:>{token_pad}} "
+        "| {no_special:>{no_special_pad}} "
+        "| {symbol:>{symbol_pad}} |"
+    ).format(
+        token=to_percent(result["correct"]["full"]),
+        no_special=to_percent(result["correct"]["removed"]),
+        symbol=to_percent(result["correct"]["symbols"]),
+        token_pad=len(correct_token),
+        no_special_pad=len(correct_no_special),
+        symbol_pad=len(correct_symbol),
+    )
+    correct_table = "\n".join([correct_header, correct_delimiter, correct_values])
+
+    return err_table, correct_table
+
+
+def evaluate(enc, dec, data_loader, device, checkpoint=default_checkpoint, prefix=""):
     special_tokens = [data_loader.dataset.token_to_id[tok] for tok in SPECIAL_TOKENS]
     non_symbols_encoded = [data_loader.dataset.token_to_id[tok] for tok in non_symbols]
     correct_tokens = 0
@@ -158,31 +210,18 @@ def evaluate(
         num_tokens["removed"] += sum([exp.numel() for exp in expected_removed])
         num_tokens["symbols"] += sum([exp.numel() for exp in expected_symbols])
 
-    print(
-        "# Dataset {name}:\n"
-        "\nToken - Full\n"
-        "============\n"
-        "Accuracy = {full_accuracy}\n"
-        "Error Rate = {full_error}\n"
-        "Correct Expressions = {full_correct}\n"
-        "\nToken - Removed special tokens\n"
-        "==============================\n"
-        "Error Rate = {removed_error}\n"
-        "Correct Expressions = {removed_correct}\n"
-        "\nSymbols\n"
-        "=======\n"
-        "Error Rate = {symbols_error}\n"
-        "Correct Expressions = {symbols_correct}".format(
-            name=name,
-            full_accuracy=correct_tokens / num_tokens["full"],
-            full_error=distance["full"] / num_tokens["full"],
-            removed_error=distance["removed"] / num_tokens["removed"],
-            symbols_error=distance["symbols"] / num_tokens["symbols"],
-            full_correct=correct["full"] / correct["total"],
-            removed_correct=correct["removed"] / correct["total"],
-            symbols_correct=correct["symbols"] / correct["total"],
-        )
-    )
+    return {
+        "error": {
+            "full": distance["full"] / num_tokens["full"],
+            "removed": distance["removed"] / num_tokens["removed"],
+            "symbols": distance["symbols"] / num_tokens["symbols"],
+        },
+        "correct": {
+            "full": correct["full"] / correct["total"],
+            "removed": correct["removed"] / correct["total"],
+            "symbols": correct["symbols"] / correct["total"],
+        },
+    }
 
 
 def parse_args():
@@ -277,14 +316,19 @@ def main():
         enc.eval()
         dec.eval()
 
-        evaluate(
+        result = evaluate(
             enc,
             dec,
-            name=dataset_name,
             data_loader=data_loader,
             device=device,
             checkpoint=checkpoint,
             prefix=options.prefix,
+        )
+        err_table, correct_table = create_markdown_tables(result)
+        print(
+            "# Dataset {name}\n\n{err_table}\n\n{correct_table}".format(
+                name=dataset_name, err_table=err_table, correct_table=correct_table
+            )
         )
 
 
