@@ -1,5 +1,6 @@
 import argparse
 import editdistance
+import os
 import re
 import torch
 from torch.utils.data import DataLoader
@@ -84,48 +85,73 @@ def to_percent(decimal, precision=2):
     return "{value:.{precision}f}%".format(value=percent, precision=precision)
 
 
-def create_markdown_tables(result):
+def create_markdown_tables(results):
+    model = "Model"
+    model_pad = max(len(key) for key in results.keys())
+    model_pad = max(len(model), model_pad)
     err_token = "Token error rate"
     err_no_special = "Token error rate (no speical tokens)"
     err_symbol = "Symbol error rate"
-    err_header = "| {token} | {no_special} | {symbol} |".format(
-        token=err_token, no_special=err_no_special, symbol=err_symbol
+    err_header = "| {model:>{model_pad}} | {token} | {no_special} | {symbol} |".format(
+        model=model,
+        model_pad=model_pad,
+        token=err_token,
+        no_special=err_no_special,
+        symbol=err_symbol,
     )
     err_delimiter = re.sub("[^|]", "-", err_header)
-    err_values = (
-        "| {token:>{token_pad}} "
-        "| {no_special:>{no_special_pad}} "
-        "| {symbol:>{symbol_pad}} |"
-    ).format(
-        token=to_percent(result["error"]["full"]),
-        no_special=to_percent(result["error"]["removed"]),
-        symbol=to_percent(result["error"]["symbols"]),
-        token_pad=len(err_token),
-        no_special_pad=len(err_no_special),
-        symbol_pad=len(err_symbol),
-    )
-    err_table = "\n".join([err_header, err_delimiter, err_values])
+    err_values = [
+        (
+            "| {model:>{model_pad}} "
+            "| {token:>{token_pad}} "
+            "| {no_special:>{no_special_pad}} "
+            "| {symbol:>{symbol_pad}} |"
+        ).format(
+            model=name,
+            token=to_percent(result["error"]["full"]),
+            no_special=to_percent(result["error"]["removed"]),
+            symbol=to_percent(result["error"]["symbols"]),
+            model_pad=model_pad,
+            token_pad=len(err_token),
+            no_special_pad=len(err_no_special),
+            symbol_pad=len(err_symbol),
+        )
+        for name, result in results.items()
+    ]
+    err_table = "\n".join([err_header, err_delimiter, *err_values])
 
     correct_token = "Correct expressions"
     correct_no_special = "Correct expressions (no special tokens)"
     correct_symbol = "Correct expressions (Symbols)"
-    correct_header = "| {token} | {no_special} | {symbol} |".format(
-        token=correct_token, no_special=correct_no_special, symbol=correct_symbol
+    correct_header = (
+        "| {model:>{model_pad}} | {token} | {no_special} | {symbol} |"
+    ).format(
+        model=model,
+        model_pad=model_pad,
+        token=correct_token,
+        no_special=correct_no_special,
+        symbol=correct_symbol,
     )
     correct_delimiter = re.sub("[^|]", "-", correct_header)
-    correct_values = (
-        "| {token:>{token_pad}} "
-        "| {no_special:>{no_special_pad}} "
-        "| {symbol:>{symbol_pad}} |"
-    ).format(
-        token=to_percent(result["correct"]["full"]),
-        no_special=to_percent(result["correct"]["removed"]),
-        symbol=to_percent(result["correct"]["symbols"]),
-        token_pad=len(correct_token),
-        no_special_pad=len(correct_no_special),
-        symbol_pad=len(correct_symbol),
-    )
-    correct_table = "\n".join([correct_header, correct_delimiter, correct_values])
+    correct_values = [
+        (
+            "| {model:>{model_pad}} "
+            "| {token:>{token_pad}} "
+            "| {no_special:>{no_special_pad}} "
+            "| {symbol:>{symbol_pad}} |"
+        ).format(
+            model=name,
+            token=to_percent(result["correct"]["full"]),
+            no_special=to_percent(result["correct"]["removed"]),
+            symbol=to_percent(result["correct"]["symbols"]),
+            model_pad=model_pad,
+            token_pad=len(correct_token),
+            no_special_pad=len(correct_no_special),
+            symbol_pad=len(correct_symbol),
+        )
+        for name, result in results.items()
+    ]
+    correct_table = "\n".join([correct_header, correct_delimiter, *correct_values])
 
     return err_table, correct_table
 
@@ -230,7 +256,9 @@ def parse_args():
         "-c",
         "--checkpoint",
         dest="checkpoint",
-        help="Path to the checkpoint to be loaded to resume training",
+        nargs="+",
+        required=True,
+        help="Path to the checkpoint to be used for the evaluation",
     )
     parser.add_argument(
         "-b",
@@ -281,52 +309,57 @@ def main():
     hardware = "cuda" if is_cuda else "cpu"
     device = torch.device(hardware)
 
-    checkpoint = (
-        load_checkpoint(options.checkpoint, cuda=is_cuda)
-        if options.checkpoint
-        else default_checkpoint
-    )
-    encoder_checkpoint = checkpoint["model"].get("encoder")
-    decoder_checkpoint = checkpoint["model"].get("decoder")
-
     for dataset_name in options.dataset:
-        test_set = test_sets[dataset_name]
-        dataset = CrohmeDataset(
-            test_set["groundtruth"],
-            tokensfile,
-            root=test_set["root"],
-            transform=transformers,
-        )
-        data_loader = DataLoader(
-            dataset,
-            batch_size=options.batch_size,
-            shuffle=False,
-            num_workers=options.num_workers,
-            collate_fn=collate_batch,
-        )
+        results = {}
+        for checkpoint_path in options.checkpoint:
+            checkpoint_name, _ = os.path.splitext(os.path.basename(checkpoint_path))
+            checkpoint = (
+                load_checkpoint(checkpoint_path, cuda=is_cuda)
+                if checkpoint_path
+                else default_checkpoint
+            )
+            encoder_checkpoint = checkpoint["model"].get("encoder")
+            decoder_checkpoint = checkpoint["model"].get("decoder")
 
-        enc = Encoder(img_channels=3, checkpoint=encoder_checkpoint).to(device)
-        dec = Decoder(
-            len(dataset.id_to_token),
-            low_res_shape,
-            high_res_shape,
-            checkpoint=decoder_checkpoint,
-            device=device,
-        ).to(device)
-        enc.eval()
-        dec.eval()
+            test_set = test_sets[dataset_name]
+            dataset = CrohmeDataset(
+                test_set["groundtruth"],
+                tokensfile,
+                root=test_set["root"],
+                transform=transformers,
+            )
+            data_loader = DataLoader(
+                dataset,
+                batch_size=options.batch_size,
+                shuffle=False,
+                num_workers=options.num_workers,
+                collate_fn=collate_batch,
+            )
 
-        result = evaluate(
-            enc,
-            dec,
-            data_loader=data_loader,
-            device=device,
-            checkpoint=checkpoint,
-            prefix=options.prefix,
-        )
-        err_table, correct_table = create_markdown_tables(result)
+            enc = Encoder(img_channels=3, checkpoint=encoder_checkpoint).to(device)
+            dec = Decoder(
+                len(dataset.id_to_token),
+                low_res_shape,
+                high_res_shape,
+                checkpoint=decoder_checkpoint,
+                device=device,
+            ).to(device)
+            enc.eval()
+            dec.eval()
+
+            result = evaluate(
+                enc,
+                dec,
+                data_loader=data_loader,
+                device=device,
+                checkpoint=checkpoint,
+                prefix=options.prefix,
+            )
+            results[checkpoint_name] = result
+
+        err_table, correct_table = create_markdown_tables(results)
         print(
-            "# Dataset {name}\n\n{err_table}\n\n{correct_table}".format(
+            "\n# Dataset {name}\n\n{err_table}\n\n{correct_table}".format(
                 name=dataset_name, err_table=err_table, correct_table=correct_table
             )
         )
