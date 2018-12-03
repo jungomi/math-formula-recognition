@@ -82,9 +82,9 @@ def evaluate(
     special_tokens = [data_loader.dataset.token_to_id[tok] for tok in SPECIAL_TOKENS]
     non_symbols_encoded = [data_loader.dataset.token_to_id[tok] for tok in non_symbols]
     correct_tokens = 0
-    distance = {"full": 0, "removed": 0, "stripped": 0, "symbols": 0}
-    num_tokens = {"full": 0, "removed": 0, "stripped": 0, "symbols": 0}
-    correct = {"full": 0, "removed": 0, "stripped": 0, "symbols": 0, "total": 0}
+    distance = {"full": 0, "removed": 0, "symbols": 0}
+    num_tokens = {"full": 0, "removed": 0, "symbols": 0}
+    correct = {"full": 0, "removed": 0, "symbols": 0, "total": 0}
 
     for d in data_loader:
         input = d["image"].to(device)
@@ -118,19 +118,11 @@ def evaluate(
         sequence_removed = [
             remove_special_tokens(seq, special_tokens) for seq in sequence
         ]
-        sequence_stripped = [
-            remove_special_tokens(seq, special_tokens, strip_only=True)
-            for seq in sequence
-        ]
         sequence_symbols = [
             remove_special_tokens(seq, non_symbols_encoded) for seq in sequence_removed
         ]
         expected_removed = [
             remove_special_tokens(exp, special_tokens) for exp in expected
-        ]
-        expected_stripped = [
-            remove_special_tokens(exp, special_tokens, strip_only=True)
-            for exp in expected
         ]
         expected_symbols = [
             remove_special_tokens(exp, non_symbols_encoded) for exp in expected_removed
@@ -138,11 +130,9 @@ def evaluate(
         correct_tokens += torch.sum(sequence == expected, dim=(0, 1)).item()
         distances_full = calc_distances(sequence, expected)
         distances_removed = calc_distances(sequence_removed, expected_removed)
-        distances_stripped = calc_distances(sequence_stripped, expected_stripped)
         distances_symbols = calc_distances(sequence_symbols, expected_symbols)
         distance["full"] += sum(distances_full)
         distance["removed"] += sum(distances_removed)
-        distance["stripped"] += sum(distances_stripped)
         distance["symbols"] += sum(distances_symbols)
         correct["full"] += sum(
             [torch.equal(seq, exp) for seq, exp in zip(sequence, expected)]
@@ -153,12 +143,6 @@ def evaluate(
                 for seq, exp in zip(sequence_removed, expected_removed)
             ]
         )
-        correct["stripped"] += sum(
-            [
-                torch.equal(seq, exp)
-                for seq, exp in zip(sequence_stripped, expected_stripped)
-            ]
-        )
         correct["symbols"] += sum(
             [
                 torch.equal(seq, exp)
@@ -167,12 +151,11 @@ def evaluate(
         )
         correct["total"] += len(expected_symbols)
 
-        # Can't use .numel() for the removed / stripped versions, because they can't
+        # Can't use .numel() for the removed versions, because they can't
         # be converted to a tensor (stacked), as they may not have the same length.
         # Instead it's a list of tensors.
         num_tokens["full"] += expected.numel()
         num_tokens["removed"] += sum([exp.numel() for exp in expected_removed])
-        num_tokens["stripped"] += sum([exp.numel() for exp in expected_stripped])
         num_tokens["symbols"] += sum([exp.numel() for exp in expected_symbols])
 
     print(
@@ -186,10 +169,6 @@ def evaluate(
         "==============================\n"
         "Error Rate = {removed_error}\n"
         "Correct Expressions = {removed_correct}\n"
-        "\nToken - Stripped special tokens\n"
-        "===============================\n"
-        "Error Rate = {stripped_error}\n"
-        "Correct Expressions = {stripped_correct}\n"
         "\nSymbols\n"
         "=======\n"
         "Error Rate = {symbols_error}\n"
@@ -198,11 +177,9 @@ def evaluate(
             full_accuracy=correct_tokens / num_tokens["full"],
             full_error=distance["full"] / num_tokens["full"],
             removed_error=distance["removed"] / num_tokens["removed"],
-            stripped_error=distance["stripped"] / num_tokens["stripped"],
             symbols_error=distance["symbols"] / num_tokens["symbols"],
             full_correct=correct["full"] / correct["total"],
             removed_correct=correct["removed"] / correct["total"],
-            stripped_correct=correct["stripped"] / correct["total"],
             symbols_correct=correct["symbols"] / correct["total"],
         )
     )
