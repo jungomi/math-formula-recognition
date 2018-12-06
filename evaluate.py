@@ -359,6 +359,14 @@ def evaluate(
             hypothesis["num_tokens"] = num_tokens
             create_statistics(hypothesis)
 
+        correct_totals = torch.tensor(
+            [hypothesis["correct"]["total"] for hypothesis in hypotheses],
+            dtype=torch.float,
+        )
+        best["correct"]["total"] += torch.max(correct_totals).item()
+        # This should be constant, as every hypothesis should contain the same
+        # number of expressions and therefore the mean should also be the same.
+        mean["correct"]["total"] += torch.mean(correct_totals).item()
         for category in ["full", "removed", "symbols"]:
             category_distance = torch.tensor(
                 [hypothesis["distance"][category] for hypothesis in hypotheses],
@@ -366,10 +374,6 @@ def evaluate(
             )
             category_correct = torch.tensor(
                 [hypothesis["correct"][category] for hypothesis in hypotheses],
-                dtype=torch.float,
-            )
-            category_correct_total = torch.tensor(
-                [hypothesis["correct"]["total"] for hypothesis in hypotheses],
                 dtype=torch.float,
             )
             category_num_tokens = torch.tensor(
@@ -385,13 +389,9 @@ def evaluate(
                 category
             ]
             best["correct"][category] += hypotheses[best_correct]["correct"][category]
-            best["correct"]["total"] += hypotheses[best_correct]["correct"]["total"]
             mean["distance"][category] += torch.mean(category_distance).item()
             mean["num_tokens"][category] += torch.mean(category_num_tokens).item()
             mean["correct"][category] += torch.mean(category_correct).item()
-            # This should be constant, as every hypothesis should contain the same
-            # number of expressions and therefore the mean should also be the same.
-            mean["correct"]["total"] += torch.mean(category_correct_total).item()
 
     best["error"] = {
         "full": best["distance"]["full"] / best["num_tokens"]["full"],
