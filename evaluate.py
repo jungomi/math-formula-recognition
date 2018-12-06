@@ -15,6 +15,7 @@ high_res_shape = (792, input_size[0] // 8, input_size[1] // 8)
 
 batch_size = 4
 num_workers = 4
+beam_width = 10
 
 test_sets = {
     "train": {"groundtruth": "./data/groundtruth_train.tsv", "root": "./data/train/"},
@@ -242,7 +243,7 @@ def evaluate(
     data_loader,
     device,
     checkpoint=default_checkpoint,
-    beam_width=10,
+    beam_width=beam_width,
     prefix="",
 ):
     special_tokens = [data_loader.dataset.token_to_id[tok] for tok in SPECIAL_TOKENS]
@@ -452,6 +453,13 @@ def parse_args():
         help="Number of workers for loading the data [default: {}]".format(num_workers),
     )
     parser.add_argument(
+        "--beam-width",
+        dest="beam_width",
+        default=beam_width,
+        type=int,
+        help="Width of the beam [default: {}]".format(beam_width),
+    )
+    parser.add_argument(
         "--no-cuda",
         dest="no_cuda",
         action="store_true",
@@ -518,6 +526,7 @@ def main():
                 data_loader=data_loader,
                 device=device,
                 checkpoint=checkpoint,
+                beam_width=options.beam_width,
                 prefix=options.prefix,
             )
             results["best"][checkpoint_name] = result["best"]
@@ -528,10 +537,12 @@ def main():
         print(
             (
                 "\n# Dataset {name}\n\n"
+                "Beam width: {beam_width}\n\n"
                 "## Best\n\n{best_err_table}\n\n{best_correct_table}\n\n"
                 "## Mean\n\n{mean_err_table}\n\n{mean_correct_table}"
             ).format(
                 name=dataset_name,
+                beam_width=options.beam_width,
                 best_err_table=best_err_table,
                 best_correct_table=best_correct_table,
                 mean_err_table=mean_err_table,
