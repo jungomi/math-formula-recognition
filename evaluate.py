@@ -206,35 +206,79 @@ def create_markdown_tables(results):
     return err_table, correct_table
 
 
-# Picks the k unique hypotheses. They uniqueness is determined from a batch of
-# sequences. That means that several sequences in one batch may occur as duplicates
-# overall, but as soon as one doesn't already exist, the batch is kept. To have truly
-# unique sequences, it should be run with a batch size of 1.
-# TODO: Change criterion from batch wise probability to individual probabilities.
+# Convert hypothesis batches to hypothesis grouped by sequence.
+def unbatch_hypotheses(hypotheses):
+    if not hypotheses:
+        return []
+    hypotheses_by_seq = [[] for _ in hypotheses[0]["probability"]]
+    for h in hypotheses:
+        for i in range(len(h["probability"])):
+            single_h = {
+                "sequence": {"full": h["sequence"]["full"][i]},
+                # The hidden weights have batch size in the second dimension, not first.
+                "hidden": h["hidden"][:, i],
+                "attn": {"low": h["attn"]["low"][i], "high": h["attn"]["high"][i]},
+                "probability": h["probability"][i],
+            }
+            hypotheses_by_seq[i].append(single_h)
+    return hypotheses_by_seq
+
+
+def batch_single_hypotheses(single_hypotheses):
+    # It might be possible that the different sequences have a different number of total
+    # hypotheses, since there might be duplicates in one of them. To prevent that take
+    # the lowest number that is available. It might be smaller than the beam width.
+    # But there can only be batches where each sequence is present.
+    min_len = min(len(hs) for hs in single_hypotheses)
+    batched_hypotheses = []
+    for i in range(min_len):
+        batch_h = {
+            "sequence": {
+                "full": torch.stack(
+                    [hs[i]["sequence"]["full"] for hs in single_hypotheses]
+                )
+            },
+            # The hidden weights have batch size in the second dimension, not first.
+            "hidden": torch.stack([hs[i]["hidden"] for hs in single_hypotheses], dim=1),
+            "attn": {
+                "low": torch.stack([hs[i]["attn"]["low"] for hs in single_hypotheses]),
+                "high": torch.stack(
+                    [hs[i]["attn"]["high"] for hs in single_hypotheses]
+                ),
+            },
+            "probability": torch.stack(
+                [hs[i]["probability"] for hs in single_hypotheses]
+            ),
+        }
+        batched_hypotheses.append(batch_h)
+    return batched_hypotheses
+
+
+# Picks the k sequences with the best probabilities. Each sequence is inspected
+# separately and at the end new hypotheses are created by stacking the k best ones of
+# each sequence to create batches, that can be used for the next step.
 def pick_top_k_unique(hypotheses, count):
-    unique_hypotheses = []
-    sorted_hypotheses = sorted(
-        hypotheses, key=lambda h: torch.sum(h["probability"]).item(), reverse=True
-    )
-    for h in sorted_hypotheses:
-        if len(unique_hypotheses) >= count:
-            break
-        already_exists = False
-        for h_uniq in unique_hypotheses:
-            sequence_already_exists = all(
-                [
-                    torch.equal(h_seq, h_uniq_seq)
-                    for h_seq, h_uniq_seq in zip(
-                        h["sequence"]["full"], h_uniq["sequence"]["full"]
-                    )
-                ]
-            )
-            if sequence_already_exists:
-                already_exists = True
+    sorted_hypotheses = [
+        sorted(hs, key=lambda h: h["probability"].item(), reverse=True)
+        for hs in unbatch_hypotheses(hypotheses)
+    ]
+    unique_hypotheses = [[] for _ in sorted_hypotheses]
+
+    for i, hs in enumerate(sorted_hypotheses):
+        for h in hs:
+            if len(unique_hypotheses[i]) >= count:
                 break
-        if not already_exists:
-            unique_hypotheses.append(h)
-    return unique_hypotheses
+            already_exists = False
+            for h_uniq in unique_hypotheses[i]:
+                already_exists = torch.equal(
+                    h["sequence"]["full"], h_uniq["sequence"]["full"]
+                )
+                if already_exists:
+                    break
+            if not already_exists:
+                unique_hypotheses[i].append(h)
+
+    return batch_single_hypotheses(unique_hypotheses)
 
 
 def evaluate(
