@@ -302,6 +302,11 @@ def evaluate(
         "distance": {"full": 0, "removed": 0, "symbols": 0},
         "correct": {"full": 0, "removed": 0, "symbols": 0, "total": 0},
     }
+    highest_prob = {
+        "num_tokens": {"full": 0, "removed": 0, "symbols": 0},
+        "distance": {"full": 0, "removed": 0, "symbols": 0},
+        "correct": {"full": 0, "removed": 0, "symbols": 0, "total": 0},
+    }
 
     for d in data_loader:
         input = d["image"].to(device)
@@ -411,6 +416,7 @@ def evaluate(
         # This should be constant, as every hypothesis should contain the same
         # number of expressions and therefore the mean should also be the same.
         mean["correct"]["total"] += torch.mean(correct_totals).item()
+        highest_prob["correct"]["total"] += hypotheses[0]["correct"]["total"]
         for category in ["full", "removed", "symbols"]:
             category_distance = torch.tensor(
                 [hypothesis["distance"][category] for hypothesis in hypotheses],
@@ -436,6 +442,13 @@ def evaluate(
             mean["distance"][category] += torch.mean(category_distance).item()
             mean["num_tokens"][category] += torch.mean(category_num_tokens).item()
             mean["correct"][category] += torch.mean(category_correct).item()
+            # The highest probability is the first hypotheses, since it was sorted
+            # when the top k were chosen.
+            highest_prob["distance"][category] += hypotheses[0]["distance"][category]
+            highest_prob["num_tokens"][category] += hypotheses[0]["num_tokens"][
+                category
+            ]
+            highest_prob["correct"][category] += hypotheses[0]["correct"][category]
 
     best["error"] = {
         "full": best["distance"]["full"] / best["num_tokens"]["full"],
@@ -457,7 +470,21 @@ def evaluate(
         "removed": mean["correct"]["removed"] / mean["correct"]["total"],
         "symbols": mean["correct"]["symbols"] / mean["correct"]["total"],
     }
-    return {"best": best, "mean": mean}
+    highest_prob["error"] = {
+        "full": highest_prob["distance"]["full"] / highest_prob["num_tokens"]["full"],
+        "removed": highest_prob["distance"]["removed"]
+        / highest_prob["num_tokens"]["removed"],
+        "symbols": highest_prob["distance"]["symbols"]
+        / highest_prob["num_tokens"]["symbols"],
+    }
+    highest_prob["correct"]["percent"] = {
+        "full": highest_prob["correct"]["full"] / highest_prob["correct"]["total"],
+        "removed": highest_prob["correct"]["removed"]
+        / highest_prob["correct"]["total"],
+        "symbols": highest_prob["correct"]["symbols"]
+        / highest_prob["correct"]["total"],
+    }
+    return {"best": best, "mean": mean, "highest_prob": highest_prob}
 
 
 def parse_args():
@@ -527,7 +554,7 @@ def main():
     device = torch.device(hardware)
 
     for dataset_name in options.dataset:
-        results = {"best": {}, "mean": {}}
+        results = {"best": {}, "mean": {}, "highest_prob": {}}
         for checkpoint_path in options.checkpoint:
             checkpoint_name, _ = os.path.splitext(os.path.basename(checkpoint_path))
             checkpoint = (
@@ -575,18 +602,26 @@ def main():
             )
             results["best"][checkpoint_name] = result["best"]
             results["mean"][checkpoint_name] = result["mean"]
+            results["highest_prob"][checkpoint_name] = result["highest_prob"]
 
+        highest_prob_err_table, highest_prob_correct_table = create_markdown_tables(
+            results["highest_prob"]
+        )
         best_err_table, best_correct_table = create_markdown_tables(results["best"])
         mean_err_table, mean_correct_table = create_markdown_tables(results["mean"])
         print(
             (
                 "\n# Dataset {name}\n\n"
                 "Beam width: {beam_width}\n\n"
+                "## Highest Probability\n\n{highest_prob_err_table}\n\n"
+                "{highest_prob_correct_table}\n\n"
                 "## Best\n\n{best_err_table}\n\n{best_correct_table}\n\n"
                 "## Mean\n\n{mean_err_table}\n\n{mean_correct_table}"
             ).format(
                 name=dataset_name,
                 beam_width=options.beam_width,
+                highest_prob_err_table=highest_prob_err_table,
+                highest_prob_correct_table=highest_prob_correct_table,
                 best_err_table=best_err_table,
                 best_correct_table=best_correct_table,
                 mean_err_table=mean_err_table,
