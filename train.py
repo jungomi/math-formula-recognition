@@ -36,7 +36,8 @@ dropout_rate = 0.2
 teacher_forcing_ratio = 0.5
 seed = 1234
 
-groundtruth = "./data/groundtruth_train.tsv"
+gt_train = "./data/gt_split/train.tsv"
+gt_validation = "./data/gt_split/validation.tsv"
 tokensfile = "./data/tokens.tsv"
 root = "./data/train/"
 use_cuda = torch.cuda.is_available()
@@ -50,12 +51,112 @@ transformers = transforms.Compose(
 )
 
 
+def run_epoch(
+    data_loader,
+    enc,
+    dec,
+    epoch_text,
+    criterion,
+    optimiser,
+    teacher_forcing_ratio,
+    max_grad_norm,
+    device,
+    train=True,
+):
+    # Disables autograd during validation mode
+    torch.set_grad_enabled(train)
+    if train:
+        enc.train()
+        dec.train()
+    else:
+        enc.eval()
+        dec.eval()
+
+    losses = []
+    grad_norms = []
+    correct_symbols = 0
+    total_symbols = 0
+
+    with tqdm(
+        desc="{} ({})".format(epoch_text, "Train" if train else "Validation"),
+        total=len(data_loader.dataset),
+        dynamic_ncols=True,
+        leave=False,
+    ) as pbar:
+        for d in data_loader:
+            input = d["image"].to(device)
+            # The last batch may not be a full batch
+            curr_batch_size = len(input)
+            expected = d["truth"]["encoded"].to(device)
+            batch_max_len = expected.size(1)
+            # Replace -1 with the PAD token
+            expected[expected == -1] = data_loader.dataset.token_to_id[PAD]
+            enc_low_res, enc_high_res = enc(input)
+            # Decoder needs to be reset, because the coverage attention (alpha)
+            # only applies to the current image.
+            dec.reset(curr_batch_size)
+            hidden = dec.init_hidden(curr_batch_size).to(device)
+            # Starts with a START token
+            sequence = torch.full(
+                (curr_batch_size, 1),
+                data_loader.dataset.token_to_id[START],
+                dtype=torch.long,
+                device=device,
+            )
+            # The teacher forcing is done per batch, not symbol
+            use_teacher_forcing = train and random.random() < teacher_forcing_ratio
+            decoded_values = []
+            for i in range(batch_max_len - 1):
+                previous = expected[:, i] if use_teacher_forcing else sequence[:, -1]
+                previous = previous.view(-1, 1)
+                out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
+                hidden = hidden.detach()
+                _, top1_id = torch.topk(out, 1)
+                sequence = torch.cat((sequence, top1_id), dim=1)
+                decoded_values.append(out)
+
+            decoded_values = torch.stack(decoded_values, dim=2).to(device)
+            # decoded_values does not contain the start symbol
+            loss = criterion(decoded_values, expected[:, 1:])
+
+            if train:
+                optim_params = [
+                    p
+                    for param_group in optimiser.param_groups
+                    for p in param_group["params"]
+                ]
+                optimiser.zero_grad()
+                loss.backward()
+                # Clip gradients, it returns the total norm of all parameters
+                grad_norm = nn.utils.clip_grad_norm_(
+                    optim_params, max_norm=max_grad_norm
+                )
+                grad_norms.append(grad_norm)
+                optimiser.step()
+
+            losses.append(loss.item())
+            correct_symbols += torch.sum(sequence == expected, dim=(0, 1)).item()
+            total_symbols += expected.numel()
+            pbar.update(curr_batch_size)
+
+    result = {
+        "loss": np.mean(losses),
+        "correct_symbols": correct_symbols,
+        "total_symbols": total_symbols,
+    }
+    if train:
+        result["grad_norm"] = np.mean(grad_norms)
+
+    return result
+
+
 def train(
     enc,
     dec,
     optimiser,
     criterion,
-    data_loader,
+    train_data_loader,
+    validation_data_loader,
     device,
     teacher_forcing_ratio=teacher_forcing_ratio,
     lr_scheduler=None,
@@ -70,20 +171,15 @@ def train(
 
     writer = init_tensorboard(name=prefix.strip("-"))
     start_epoch = checkpoint["epoch"]
-    accuracy = checkpoint["accuracy"]
-    losses = checkpoint["losses"]
+    train_accuracy = checkpoint["train_accuracy"]
+    train_losses = checkpoint["train_losses"]
+    validation_accuracy = checkpoint["validation_accuracy"]
+    validation_losses = checkpoint["validation_losses"]
     learning_rates = checkpoint["lr"]
     grad_norms = checkpoint["grad_norm"]
-    optim_params = [
-        p for param_group in optimiser.param_groups for p in param_group["params"]
-    ]
 
     for epoch in range(num_epochs):
         start_time = time.time()
-        epoch_losses = []
-        epoch_grad_norms = []
-        epoch_correct_symbols = 0
-        total_symbols = 0
 
         if lr_scheduler:
             lr_scheduler.step()
@@ -95,79 +191,52 @@ def train(
             pad=len(str(num_epochs)),
         )
 
-        with tqdm(
-            desc=epoch_text,
-            total=len(data_loader.dataset),
-            dynamic_ncols=True,
-            leave=False,
-        ) as pbar:
-            for d in data_loader:
-                input = d["image"].to(device)
-                # The last batch may not be a full batch
-                curr_batch_size = len(input)
-                expected = d["truth"]["encoded"].to(device)
-                batch_max_len = expected.size(1)
-                # Replace -1 with the PAD token
-                expected[expected == -1] = data_loader.dataset.token_to_id[PAD]
-                enc_low_res, enc_high_res = enc(input)
-                # Decoder needs to be reset, because the coverage attention (alpha)
-                # only applies to the current image.
-                dec.reset(curr_batch_size)
-                hidden = dec.init_hidden(curr_batch_size).to(device)
-                # Starts with a START token
-                sequence = torch.full(
-                    (curr_batch_size, 1),
-                    data_loader.dataset.token_to_id[START],
-                    dtype=torch.long,
-                    device=device,
-                )
-                # The teacher forcing is done per batch, not symbol
-                use_teacher_forcing = random.random() < teacher_forcing_ratio
-                decoded_values = []
-                for i in range(batch_max_len - 1):
-                    previous = (
-                        expected[:, i] if use_teacher_forcing else sequence[:, -1]
-                    )
-                    previous = previous.view(-1, 1)
-                    out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
-                    hidden = hidden.detach()
-                    _, top1_id = torch.topk(out, 1)
-                    sequence = torch.cat((sequence, top1_id), dim=1)
-                    decoded_values.append(out)
-
-                decoded_values = torch.stack(decoded_values, dim=2).to(device)
-                optimiser.zero_grad()
-                # decoded_values does not contain the start symbol
-                loss = criterion(decoded_values, expected[:, 1:])
-                loss.backward()
-                # Clip gradients, it returns the total norm of all parameters
-                grad_norm = nn.utils.clip_grad_norm_(
-                    optim_params, max_norm=max_grad_norm
-                )
-                optimiser.step()
-
-                epoch_losses.append(loss.item())
-                epoch_grad_norms.append(grad_norm)
-                epoch_correct_symbols += torch.sum(
-                    sequence == expected, dim=(0, 1)
-                ).item()
-                total_symbols += expected.numel()
-                pbar.update(curr_batch_size)
-
-        mean_epoch_loss = np.mean(epoch_losses)
-        mean_epoch_grad_norm = np.mean(epoch_grad_norms)
-        losses.append(mean_epoch_loss)
-        grad_norms.append(mean_epoch_grad_norm)
-        epoch_accuracy = epoch_correct_symbols / total_symbols
-        accuracy.append(epoch_accuracy)
+        train_result = run_epoch(
+            train_data_loader,
+            enc,
+            dec,
+            epoch_text,
+            criterion,
+            optimiser,
+            teacher_forcing_ratio,
+            max_grad_norm,
+            device,
+            train=True,
+        )
+        train_losses.append(train_result["loss"])
+        grad_norms.append(train_result["grad_norm"])
+        train_epoch_accuracy = (
+            train_result["correct_symbols"] / train_result["total_symbols"]
+        )
+        train_accuracy.append(train_epoch_accuracy)
         epoch_lr = lr_scheduler.get_lr()[0]
         learning_rates.append(epoch_lr)
+
+        validation_result = run_epoch(
+            validation_data_loader,
+            enc,
+            dec,
+            epoch_text,
+            criterion,
+            optimiser,
+            teacher_forcing_ratio,
+            max_grad_norm,
+            device,
+            train=False,
+        )
+        validation_losses.append(validation_result["loss"])
+        validation_epoch_accuracy = (
+            validation_result["correct_symbols"] / validation_result["total_symbols"]
+        )
+        validation_accuracy.append(validation_epoch_accuracy)
 
         save_checkpoint(
             {
                 "epoch": start_epoch + epoch + 1,
-                "losses": losses,
-                "accuracy": accuracy,
+                "train_losses": train_losses,
+                "train_accuracy": train_accuracy,
+                "validation_losses": validation_losses,
+                "validation_accuracy": validation_accuracy,
                 "lr": learning_rates,
                 "grad_norm": grad_norms,
                 "model": {"encoder": enc.state_dict(), "decoder": dec.state_dict()},
@@ -180,14 +249,20 @@ def train(
         elapsed_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
         if epoch % print_epochs == 0 or epoch == num_epochs - 1:
             print(
-                "{epoch_text}: "
-                "Accuracy = {accuracy:.5f}, "
-                "Loss = {loss:.5f}, "
-                "lr = {lr} "
-                "(time elapsed {time})".format(
+                (
+                    "{epoch_text}: "
+                    "Train Accuracy = {train_accuracy:.5f}, "
+                    "Train Loss = {train_loss:.5f}, "
+                    "Validation Accuracy = {validation_accuracy:.5f}, "
+                    "Validation Loss = {validation_loss:.5f}, "
+                    "lr = {lr} "
+                    "(time elapsed {time})"
+                ).format(
                     epoch_text=epoch_text,
-                    accuracy=epoch_accuracy,
-                    loss=mean_epoch_loss,
+                    train_accuracy=train_epoch_accuracy,
+                    train_loss=train_result["loss"],
+                    validation_accuracy=validation_epoch_accuracy,
+                    validation_loss=validation_result["loss"],
                     lr=epoch_lr,
                     time=elapsed_time,
                 )
@@ -195,14 +270,14 @@ def train(
             write_tensorboard(
                 writer,
                 start_epoch + epoch + 1,
-                mean_epoch_loss,
-                epoch_accuracy,
-                mean_epoch_grad_norm,
+                train_result["grad_norm"],
+                train_result["loss"],
+                train_epoch_accuracy,
+                validation_result["loss"],
+                validation_epoch_accuracy,
                 enc,
                 dec,
             )
-
-    return np.array(losses), np.array(accuracy)
 
 
 def parse_args():
@@ -350,20 +425,36 @@ def main():
     decoder_checkpoint = checkpoint["model"].get("decoder")
     if encoder_checkpoint is not None:
         print(
-            "Resuming from - Epoch {}: "
-            "Accuracy = {accuracy:.5f}, "
-            "Loss = {loss:.5f} ".format(
+            (
+                "Resuming from - Epoch {}: "
+                "Train Accuracy = {train_accuracy:.5f}, "
+                "Train Loss = {train_loss:.5f}, "
+                "Validation Accuracy = {validation_accuracy:.5f}, "
+                "Validation Loss = {validation_loss:.5f}, "
+            ).format(
                 checkpoint["epoch"],
-                accuracy=checkpoint["accuracy"][-1],
-                loss=checkpoint["losses"][-1],
+                train_accuracy=checkpoint["train_accuracy"][-1],
+                train_loss=checkpoint["train_losses"][-1],
+                validation_accuracy=checkpoint["validation_accuracy"][-1],
+                validation_loss=checkpoint["validation_losses"][-1],
             )
         )
 
-    dataset = CrohmeDataset(
-        groundtruth, tokensfile, root=root, crop=options.crop, transform=transformers
+    train_dataset = CrohmeDataset(
+        gt_train, tokensfile, root=root, crop=options.crop, transform=transformers
     )
-    data_loader = DataLoader(
-        dataset,
+    train_data_loader = DataLoader(
+        train_dataset,
+        batch_size=options.batch_size,
+        shuffle=True,
+        num_workers=options.num_workers,
+        collate_fn=collate_batch,
+    )
+    validation_dataset = CrohmeDataset(
+        gt_validation, tokensfile, root=root, crop=options.crop, transform=transformers
+    )
+    validation_data_loader = DataLoader(
+        validation_dataset,
         batch_size=options.batch_size,
         shuffle=True,
         num_workers=options.num_workers,
@@ -374,7 +465,7 @@ def main():
         img_channels=3, dropout_rate=options.dropout_rate, checkpoint=encoder_checkpoint
     ).to(device)
     dec = Decoder(
-        len(dataset.id_to_token),
+        len(train_dataset.id_to_token),
         low_res_shape,
         high_res_shape,
         checkpoint=decoder_checkpoint,
@@ -408,12 +499,13 @@ def main():
         optimiser, step_size=options.lr_epochs, gamma=options.lr_factor
     )
 
-    return train(
+    train(
         enc,
         dec,
         optimiser,
         criterion,
-        data_loader,
+        train_data_loader,
+        validation_data_loader,
         teacher_forcing_ratio=options.teacher_forcing,
         lr_scheduler=lr_scheduler,
         print_epochs=options.print_epochs,

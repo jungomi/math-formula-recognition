@@ -6,8 +6,10 @@ use_cuda = torch.cuda.is_available()
 
 default_checkpoint = {
     "epoch": 0,
-    "losses": [],
-    "accuracy": [],
+    "train_losses": [],
+    "train_accuracy": [],
+    "validation_losses": [],
+    "validation_accuracy": [],
     "lr": [],
     "grad_norm": [],
     "model": {},
@@ -35,9 +37,21 @@ def init_tensorboard(name="", base_dir="./tensorboard"):
     return SummaryWriter(os.path.join(base_dir, name))
 
 
-def write_tensorboard(writer, epoch, loss, accuracy, grad_norm, encoder, decoder):
-    writer.add_scalar("loss", loss, epoch)
-    writer.add_scalar("accuracy", accuracy, epoch)
+def write_tensorboard(
+    writer,
+    epoch,
+    grad_norm,
+    train_loss,
+    train_accuracy,
+    validation_loss,
+    validation_accuracy,
+    encoder,
+    decoder,
+):
+    writer.add_scalar("train_loss", train_loss, epoch)
+    writer.add_scalar("train_accuracy", train_accuracy, epoch)
+    writer.add_scalar("validation_loss", validation_loss, epoch)
+    writer.add_scalar("validation_accuracy", validation_accuracy, epoch)
     writer.add_scalar("grad_norm", grad_norm, epoch)
 
     for name, param in encoder.named_parameters():
