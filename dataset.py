@@ -20,7 +20,7 @@ def remove_unknown_tokens(truth):
     # \; \! are spaces and only present in 2014's test set
     remaining_truth = remaining_truth.replace("\\;", " ")
     remaining_truth = remaining_truth.replace("\\!", " ")
-    remaining_truth = remaining_truth.replace("\ ", " ")
+    remaining_truth = remaining_truth.replace("\\ ", " ")
     # There's one occurrence of \dots in the 2013 test set, but it wasn't present in the
     # training set. It's either \ldots or \cdots in math mode, which are essentially
     # equivalent.
@@ -34,14 +34,14 @@ def remove_unknown_tokens(truth):
     # There is no reason to use \lt or \gt instead of < and > in math mode. But the
     # training set does. They are not even LaTeX control sequences but are used in
     # MathJax (to prevent code injection).
-    remaining_truth = remaining_truth.replace("<", "\lt")
-    remaining_truth = remaining_truth.replace(">", "\gt")
+    remaining_truth = remaining_truth.replace("<", "\\lt")
+    remaining_truth = remaining_truth.replace(">", "\\gt")
     # \parallel renders to two vertical bars
-    remaining_truth = remaining_truth.replace("\parallel", "||")
+    remaining_truth = remaining_truth.replace("\\parallel", "||")
     # Some capital letters are not in the training set...
     remaining_truth = remaining_truth.replace("O", "o")
     remaining_truth = remaining_truth.replace("W", "w")
-    remaining_truth = remaining_truth.replace("\Pi", "\pi")
+    remaining_truth = remaining_truth.replace("\\Pi", "\\pi")
     return remaining_truth
 
 
