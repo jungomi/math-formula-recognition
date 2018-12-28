@@ -18,113 +18,20 @@ embedding_dim = 256
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-class BottleneckBlock(nn.Module):
-    """
-    Dense Bottleneck Block
-
-    It contains two convolutional layers, a 1x1 and a 3x3.
-    """
-
-    def __init__(self, input_size, growth_rate, dropout_rate=0.2):
-        """
-        Args:
-            input_size (int): Number of channels of the input
-            growth_rate (int): Number of new features being added. That is the ouput
-                size of the last convolutional layer.
-            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
-        """
-        super(BottleneckBlock, self).__init__()
-        inter_size = num_bn * growth_rate
-        self.norm1 = nn.BatchNorm2d(input_size)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(
-            input_size, inter_size, kernel_size=1, stride=1, bias=False
-        )
-        self.norm2 = nn.BatchNorm2d(inter_size)
-        self.conv2 = nn.Conv2d(
-            inter_size, growth_rate, kernel_size=3, stride=1, padding=1, bias=False
-        )
-        self.dropout = nn.Dropout(dropout_rate)
-
-    def forward(self, x):
-        out = self.conv1(self.relu(self.norm1(x)))
-        out = self.conv2(self.relu(self.norm2(out)))
-        out = self.dropout(out)
-        return torch.cat([x, out], 1)
-
-
-class TransitionBlock(nn.Module):
-    """
-    Transition Block
-
-    A transition layer reduces the number of feature maps in-between two bottleneck
-    blocks.
-    """
-
-    def __init__(self, input_size, output_size):
-        """
-        Args:
-            input_size (int): Number of channels of the input
-            output_size (int): Number of channels of the output
-        """
-        super(TransitionBlock, self).__init__()
-        self.norm = nn.BatchNorm2d(input_size)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(
-            input_size, output_size, kernel_size=1, stride=1, bias=False
-        )
-        self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
-
-    def forward(self, x):
-        out = self.conv(self.relu(self.norm(x)))
-        return self.pool(out)
-
-
-class DenseBlock(nn.Module):
-    """
-    Dense block
-
-    A dense block stacks several bottleneck blocks.
-    """
-
-    def __init__(self, input_size, growth_rate, depth, dropout_rate=0.2):
-        """
-        Args:
-            input_size (int): Number of channels of the input
-            growth_rate (int): Number of new features being added per bottleneck block
-            depth (int): Number of bottleneck blocks
-            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
-        """
-        super(DenseBlock, self).__init__()
-        layers = [
-            BottleneckBlock(
-                input_size + i * growth_rate, growth_rate, dropout_rate=dropout_rate
-            )
-            for i in range(depth)
-        ]
-        self.block = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.block(x)
-
-
 class Encoder(nn.Module):
-    """Multi-scale Dense Encoder
+    """Multi-scale Encoder
 
-    A multi-scale dense encoder with two branches. The first branch produces
-    low-resolution annotations, as a regular dense encoder would, and the second branch
+    A multi-scale encoder with two branches. The first branch produces
+    low-resolution annotations, as a regular encoder would, and the second branch
     produces high-resolution annotations.
     """
 
-    def __init__(
-        self, img_channels=1, num_in_features=48, dropout_rate=0.2, checkpoint=None
-    ):
+    def __init__(self, img_channels=3, num_in_features=64, checkpoint=None):
         """
         Args:
-            img_channels (int, optional): Number of channels of the images [Default: 1]
+            img_channels (int, optional): Number of channels of the images [Default: 3]
             num_in_features (int, optional): Number of channels that are created from
-                the input to feed to the first dense block [Default: 48]
-            dropout_rate (float, optional): Probability of dropout [Default: 0.2]
+                the input to feed to the first dense block [Default: 64]
             checkpoint (dict, optional): State dictionary to be loaded
         """
         super(Encoder, self).__init__()
@@ -137,63 +44,42 @@ class Encoder(nn.Module):
             bias=False,
         )
         self.norm0 = nn.BatchNorm2d(num_in_features)
+        self.conv1 = nn.Conv2d(num_in_features, 128, kernel_size=3, padding=1)
+        self.norm1 = nn.BatchNorm2d(128)
+        self.conv2 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
+        self.norm2 = nn.BatchNorm2d(256)
+        self.conv3 = nn.Conv2d(256, 512, kernel_size=3, padding=1)
+        self.norm3 = nn.BatchNorm2d(512)
+        self.conv3_high = nn.Conv2d(256, 512, kernel_size=3, padding=1)
+        self.norm3_high = nn.BatchNorm2d(512)
         self.relu = nn.ReLU(inplace=True)
         self.max_pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        num_features = num_in_features
-        self.block1 = DenseBlock(
-            num_features,
-            growth_rate=growth_rate,
-            depth=depth,
-            dropout_rate=dropout_rate,
-        )
-        num_features = num_features + depth * growth_rate
-        self.trans1 = TransitionBlock(num_features, num_features // 2)
-        num_features = num_features // 2
-        self.block2 = DenseBlock(
-            num_features,
-            growth_rate=growth_rate,
-            depth=depth,
-            dropout_rate=dropout_rate,
-        )
-
-        num_features = num_features + depth * growth_rate
-        self.trans2_norm = nn.BatchNorm2d(num_features)
-        self.trans2_relu = nn.ReLU(inplace=True)
-        self.trans2_conv = nn.Conv2d(
-            num_features, num_features // 2, kernel_size=1, stride=1, bias=False
-        )
-        self.trans2_pool = nn.AvgPool2d(kernel_size=2, stride=2)
-        self.multi_block = DenseBlock(
-            num_features,
-            growth_rate=growth_rate,
-            depth=multi_block_depth,
-            dropout_rate=dropout_rate,
-        )
-        num_features = num_features // 2
-        self.block3 = DenseBlock(
-            num_features,
-            growth_rate=growth_rate,
-            depth=depth,
-            dropout_rate=dropout_rate,
-        )
 
         if checkpoint is not None:
             self.load_state_dict(checkpoint)
 
     def forward(self, x):
         out = self.conv0(x)
-        out = self.relu(self.norm0(out))
+        out = self.norm0(out)
+        out = self.relu(out)
         out = self.max_pool(out)
-        out = self.block1(out)
-        out = self.trans1(out)
-        out = self.block2(out)
-        out_before_trans2 = self.trans2_relu(self.trans2_norm(out))
-        out_A = self.trans2_conv(out_before_trans2)
-        out_A = self.trans2_pool(out_A)
-        out_A = self.block3(out_A)
-        out_B = self.multi_block(out_before_trans2)
 
-        return out_A, out_B
+        out = self.conv1(out)
+        out = self.norm1(out)
+        out = self.relu(out)
+        out = self.max_pool(out)
+        out = self.conv2(out)
+        out = self.norm2(out)
+        out_before_max = self.relu(out)
+        out_low = self.max_pool(out_before_max)
+        out_low = self.conv3(out_low)
+        out_low = self.norm3(out_low)
+        out_low = self.relu(out_low)
+        out_high = self.conv3_high(out_before_max)
+        out_high = self.norm3_high(out_high)
+        out_high = self.relu(out_high)
+
+        return out_low, out_high
 
 
 class CoverageAttention(nn.Module):
@@ -207,13 +93,7 @@ class CoverageAttention(nn.Module):
     # output_size = q
     # attn_size = L = H * W
     def __init__(
-        self,
-        input_size,
-        output_size,
-        attn_size,
-        kernel_size,
-        padding=0,
-        device=device,
+        self, input_size, output_size, attn_size, kernel_size, padding=0, device=device
     ):
         """
         Args:

@@ -20,8 +20,8 @@ from model import Encoder, Decoder
 from dataset import CrohmeDataset, START, PAD, collate_batch
 
 input_size = (128, 128)
-low_res_shape = (684, input_size[0] // 16, input_size[1] // 16)
-high_res_shape = (792, input_size[0] // 8, input_size[1] // 8)
+low_res_shape = (512, input_size[0] // 16, input_size[1] // 16)
+high_res_shape = (512, input_size[0] // 8, input_size[1] // 8)
 
 batch_size = 4
 num_workers = multiprocessing.cpu_count()
@@ -32,7 +32,6 @@ lr_epochs = 20
 lr_factor = 0.1
 weight_decay = 1e-4
 max_grad_norm = 5.0
-dropout_rate = 0.2
 teacher_forcing_ratio = 0.5
 seed = 1234
 
@@ -384,13 +383,6 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--dropout",
-        dest="dropout_rate",
-        default=dropout_rate,
-        type=float,
-        help="Probability of using dropout [Default: {}]".format(dropout_rate),
-    )
-    parser.add_argument(
         "-s",
         "--seed",
         dest="seed",
@@ -461,9 +453,7 @@ def main():
         collate_fn=collate_batch,
     )
     criterion = nn.CrossEntropyLoss().to(device)
-    enc = Encoder(
-        img_channels=3, dropout_rate=options.dropout_rate, checkpoint=encoder_checkpoint
-    ).to(device)
+    enc = Encoder(img_channels=3, checkpoint=encoder_checkpoint).to(device)
     dec = Decoder(
         len(train_dataset.id_to_token),
         low_res_shape,
