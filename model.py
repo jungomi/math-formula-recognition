@@ -207,13 +207,7 @@ class CoverageAttention(nn.Module):
     # output_size = q
     # attn_size = L = H * W
     def __init__(
-        self,
-        input_size,
-        output_size,
-        attn_size,
-        kernel_size,
-        padding=0,
-        device=device,
+        self, input_size, output_size, attn_size, kernel_size, padding=0, device=device
     ):
         """
         Args:
@@ -301,7 +295,7 @@ class Maxout(nn.Module):
 class Decoder(nn.Module):
     """Decoder
 
-    GRU based Decoder which attends to the low- and high-resolution annotations to
+    LSTM based Decoder which attends to the low- and high-resolution annotations to
     create a LaTeX string.
     """
 
@@ -322,7 +316,7 @@ class Decoder(nn.Module):
                 i.e. (C, W, H)
             high_res_shape ((int, int, int)): Shape of the high resolution annotations
                 i.e. (C_prime, 2W, 2H)
-            hidden_size (int, optional): Hidden size of the GRU [Default: 256]
+            hidden_size (int, optional): Hidden size of the LSTM [Default: 256]
             embedding_dim (int, optional): Dimension of the embedding [Default: 256]
             checkpoint (dict, optional): State dictionary to be loaded
             device (torch.device, optional): Device for the tensors
@@ -332,10 +326,10 @@ class Decoder(nn.Module):
         C_prime = high_res_shape[0]
         context_size = C + C_prime
         self.embedding = nn.Embedding(num_classes, embedding_dim)
-        self.gru1 = nn.GRU(
+        self.lstm1 = nn.LSTM(
             input_size=embedding_dim, hidden_size=hidden_size, batch_first=True
         )
-        self.gru2 = nn.GRU(
+        self.lstm2 = nn.LSTM(
             input_size=context_size, hidden_size=hidden_size, batch_first=True
         )
         # L = H * W
@@ -363,6 +357,7 @@ class Decoder(nn.Module):
         self.U_pred = nn.Parameter(torch.empty((n_prime, n)))
         self.maxout = Maxout(2)
         self.hidden_size = hidden_size
+        self.device = device
         nn.init.xavier_normal_(self.W_o)
         nn.init.xavier_normal_(self.W_s)
         nn.init.xavier_normal_(self.W_c)
@@ -374,7 +369,12 @@ class Decoder(nn.Module):
     def init_hidden(self, batch_size):
         return torch.zeros((1, batch_size, self.hidden_size))
 
+    def reset_cells(self, batch_size):
+        self.c_1 = self.init_hidden(batch_size).to(self.device)
+        self.c_2 = self.init_hidden(batch_size).to(self.device)
+
     def reset(self, batch_size):
+        self.reset_cells(batch_size)
         self.coverage_attn_low.reset_alpha(batch_size)
         self.coverage_attn_high.reset_alpha(batch_size)
 
@@ -384,8 +384,10 @@ class Decoder(nn.Module):
     # (m x batch_size) instead of (batch_size x m). The result of the
     # multiplication is tranposed back.
     def forward(self, x, hidden, low_res, high_res):
+        if self.c_1 is None or self.c_2 is None:
+            self.reset_cells(x.size(0))
         embedded = self.embedding(x)
-        pred, _ = self.gru1(embedded, hidden)
+        pred, (h1_out, self.c_1) = self.lstm1(embedded, (hidden, self.c_1))
         # u_pred is computed here instead of in the coverage attention, because the
         # weight U_pred is shared and the coverage attention does not use pred for
         # anything else. This avoids computing it twice.
@@ -393,10 +395,12 @@ class Decoder(nn.Module):
         context_low = self.coverage_attn_low(low_res, u_pred)
         context_high = self.coverage_attn_high(high_res, u_pred)
         context = torch.cat((context_low, context_high), dim=1)
-        new_hidden, _ = self.gru2(context.unsqueeze(1), pred.transpose(0, 1))
-        w_s = torch.matmul(self.W_s, new_hidden.squeeze(1).t()).t()
+        out, (new_hidden, self.c_2) = self.lstm2(
+            context.unsqueeze(1), (h1_out, self.c_2)
+        )
+        w_s = torch.matmul(self.W_s, out.squeeze(1).t()).t()
         w_c = torch.matmul(self.W_c, context.t()).t()
         out = embedded.squeeze(1) + w_s + w_c
         out = self.maxout(out)
         out = torch.matmul(self.W_o, out.t()).t()
-        return out, new_hidden.transpose(0, 1)
+        return out, new_hidden
