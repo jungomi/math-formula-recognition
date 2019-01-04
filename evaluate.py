@@ -218,6 +218,7 @@ def unbatch_hypotheses(hypotheses):
                 # The hidden weights have batch size in the second dimension, not first.
                 "hidden": h["hidden"][:, i],
                 "attn": {"low": h["attn"]["low"][i], "high": h["attn"]["high"][i]},
+                "cell": {"1": h["cell"]["1"][i], "2": h["cell"]["2"][i]},
                 "probability": h["probability"][i],
             }
             hypotheses_by_seq[i].append(single_h)
@@ -245,6 +246,10 @@ def batch_single_hypotheses(single_hypotheses):
                 "high": torch.stack(
                     [hs[i]["attn"]["high"] for hs in single_hypotheses]
                 ),
+            },
+            "cell": {
+                "1": torch.stack([hs[i]["cell"]["1"] for hs in single_hypotheses]),
+                "2": torch.stack([hs[i]["cell"]["2"] for hs in single_hypotheses]),
             },
             "probability": torch.stack(
                 [hs[i]["probability"] for hs in single_hypotheses]
@@ -336,6 +341,7 @@ def evaluate(
                     "low": dec.coverage_attn_low.alpha,
                     "high": dec.coverage_attn_high.alpha,
                 },
+                "cell": {"1": dec.c_1, "2": dec.c_2},
                 # This will be a tensor of probabilities (one for each batch), but at
                 # the beginning it can be 1.0 because it will be broadcast for the
                 # multiplication and it means the first tensor of probabilities will be
@@ -353,6 +359,8 @@ def evaluate(
                 # the attention from another hypothesis.
                 dec.coverage_attn_low.alpha = hypothesis["attn"]["low"]
                 dec.coverage_attn_high.alpha = hypothesis["attn"]["high"]
+                dec.c_1 = hypothesis["cell"]["1"]
+                dec.c_2 = hypothesis["cell"]["2"]
                 out, next_hidden = dec(previous, curr_hidden, enc_low_res, enc_high_res)
                 probabilities = torch.softmax(out, dim=1)
                 topk_probs, topk_ids = torch.topk(probabilities, beam_width)
@@ -370,6 +378,7 @@ def evaluate(
                             "low": dec.coverage_attn_low.alpha,
                             "high": dec.coverage_attn_high.alpha,
                         },
+                        "cell": {"1": dec.c_1, "2": dec.c_2},
                         "probability": probability,
                     }
                     step_hypotheses.append(next_hypothesis)
