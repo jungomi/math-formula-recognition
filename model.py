@@ -207,13 +207,7 @@ class CoverageAttention(nn.Module):
     # output_size = q
     # attn_size = L = H * W
     def __init__(
-        self,
-        input_size,
-        output_size,
-        attn_size,
-        kernel_size,
-        padding=0,
-        device=device,
+        self, input_size, output_size, attn_size, kernel_size, padding=0, device=device
     ):
         """
         Args:
@@ -333,10 +327,16 @@ class Decoder(nn.Module):
         context_size = C + C_prime
         self.embedding = nn.Embedding(num_classes, embedding_dim)
         self.gru1 = nn.GRU(
-            input_size=embedding_dim, hidden_size=hidden_size, batch_first=True
+            input_size=embedding_dim,
+            hidden_size=hidden_size,
+            batch_first=True,
+            bidirectional=True,
         )
         self.gru2 = nn.GRU(
-            input_size=context_size, hidden_size=hidden_size, batch_first=True
+            input_size=context_size,
+            hidden_size=hidden_size,
+            batch_first=True,
+            bidirectional=True,
         )
         # L = H * W
         low_res_attn_size = low_res_shape[1] * low_res_shape[2]
@@ -358,9 +358,9 @@ class Decoder(nn.Module):
             device=device,
         )
         self.W_o = nn.Parameter(torch.empty((num_classes, embedding_dim // 2)))
-        self.W_s = nn.Parameter(torch.empty((embedding_dim, hidden_size)))
+        self.W_s = nn.Parameter(torch.empty((embedding_dim, 2 * hidden_size)))
         self.W_c = nn.Parameter(torch.empty((embedding_dim, context_size)))
-        self.U_pred = nn.Parameter(torch.empty((n_prime, n)))
+        self.U_pred = nn.Parameter(torch.empty((n_prime, n * 2)))
         self.maxout = Maxout(2)
         self.hidden_size = hidden_size
         nn.init.xavier_normal_(self.W_o)
@@ -372,7 +372,7 @@ class Decoder(nn.Module):
             self.load_state_dict(checkpoint)
 
     def init_hidden(self, batch_size):
-        return torch.zeros((1, batch_size, self.hidden_size))
+        return torch.zeros((2, batch_size, self.hidden_size))
 
     def reset(self, batch_size):
         self.coverage_attn_low.reset_alpha(batch_size)
@@ -384,6 +384,7 @@ class Decoder(nn.Module):
     # (m x batch_size) instead of (batch_size x m). The result of the
     # multiplication is tranposed back.
     def forward(self, x, hidden, low_res, high_res):
+        batch_size = x.size(0)
         embedded = self.embedding(x)
         pred, _ = self.gru1(embedded, hidden)
         # u_pred is computed here instead of in the coverage attention, because the
@@ -393,10 +394,16 @@ class Decoder(nn.Module):
         context_low = self.coverage_attn_low(low_res, u_pred)
         context_high = self.coverage_attn_high(high_res, u_pred)
         context = torch.cat((context_low, context_high), dim=1)
-        new_hidden, _ = self.gru2(context.unsqueeze(1), pred.transpose(0, 1))
+        # The output of the first GRU concatenates the outputs of the bidirectional GRUs
+        # in the last dimension, i.e. (batch_size x seq_len x 2 * hidden_size)
+        # The second GRU expects the hidden state to be in shape
+        # (2 x batch_size x hidden_size)
+        second_hidden = pred.view(batch_size, 2, -1).transpose(0, 1).contiguous()
+        new_hidden, _ = self.gru2(context.unsqueeze(1), second_hidden)
         w_s = torch.matmul(self.W_s, new_hidden.squeeze(1).t()).t()
         w_c = torch.matmul(self.W_c, context.t()).t()
         out = embedded.squeeze(1) + w_s + w_c
         out = self.maxout(out)
         out = torch.matmul(self.W_o, out.t()).t()
-        return out, new_hidden.transpose(0, 1)
+        new_hidden = new_hidden.view(batch_size, 2, -1).transpose(0, 1).contiguous()
+        return out, new_hidden
