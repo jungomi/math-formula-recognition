@@ -11,7 +11,6 @@ from dataset import CrohmeDataset, START, PAD, SPECIAL_TOKENS, collate_batch
 
 input_size = (128, 128)
 low_res_shape = (684, input_size[0] // 16, input_size[1] // 16)
-high_res_shape = (792, input_size[0] // 8, input_size[1] // 8)
 
 batch_size = 4
 num_workers = 4
@@ -217,7 +216,7 @@ def unbatch_hypotheses(hypotheses):
                 "sequence": {"full": h["sequence"]["full"][i]},
                 # The hidden weights have batch size in the second dimension, not first.
                 "hidden": h["hidden"][:, i],
-                "attn": {"low": h["attn"]["low"][i], "high": h["attn"]["high"][i]},
+                "attn": {"low": h["attn"]["low"][i]},
                 "probability": h["probability"][i],
             }
             hypotheses_by_seq[i].append(single_h)
@@ -242,9 +241,6 @@ def batch_single_hypotheses(single_hypotheses):
             "hidden": torch.stack([hs[i]["hidden"] for hs in single_hypotheses], dim=1),
             "attn": {
                 "low": torch.stack([hs[i]["attn"]["low"] for hs in single_hypotheses]),
-                "high": torch.stack(
-                    [hs[i]["attn"]["high"] for hs in single_hypotheses]
-                ),
             },
             "probability": torch.stack(
                 [hs[i]["probability"] for hs in single_hypotheses]
@@ -316,7 +312,7 @@ def evaluate(
         batch_max_len = expected.size(1)
         # Replace -1 with the PAD token
         expected[expected == -1] = data_loader.dataset.token_to_id[PAD]
-        enc_low_res, enc_high_res = enc(input)
+        enc_low_res = enc(input)
         # Decoder needs to be reset, because the coverage attention (alpha)
         # only applies to the current image.
         dec.reset(curr_batch_size)
@@ -334,7 +330,6 @@ def evaluate(
                 "hidden": hidden,
                 "attn": {
                     "low": dec.coverage_attn_low.alpha,
-                    "high": dec.coverage_attn_high.alpha,
                 },
                 # This will be a tensor of probabilities (one for each batch), but at
                 # the beginning it can be 1.0 because it will be broadcast for the
@@ -352,8 +347,7 @@ def evaluate(
                 # Set the attention to the corresponding values, otherwise it would use
                 # the attention from another hypothesis.
                 dec.coverage_attn_low.alpha = hypothesis["attn"]["low"]
-                dec.coverage_attn_high.alpha = hypothesis["attn"]["high"]
-                out, next_hidden = dec(previous, curr_hidden, enc_low_res, enc_high_res)
+                out, next_hidden = dec(previous, curr_hidden, enc_low_res)
                 probabilities = torch.softmax(out, dim=1)
                 topk_probs, topk_ids = torch.topk(probabilities, beam_width)
                 # topks are transposed, because the columns are needed, not the rows.
@@ -368,7 +362,6 @@ def evaluate(
                         "hidden": next_hidden,
                         "attn": {
                             "low": dec.coverage_attn_low.alpha,
-                            "high": dec.coverage_attn_high.alpha,
                         },
                         "probability": probability,
                     }
@@ -584,7 +577,6 @@ def main():
             dec = Decoder(
                 len(dataset.id_to_token),
                 low_res_shape,
-                high_res_shape,
                 checkpoint=decoder_checkpoint,
                 device=device,
             ).to(device)

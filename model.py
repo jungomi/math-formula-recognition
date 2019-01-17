@@ -111,9 +111,7 @@ class DenseBlock(nn.Module):
 class Encoder(nn.Module):
     """Multi-scale Dense Encoder
 
-    A multi-scale dense encoder with two branches. The first branch produces
-    low-resolution annotations, as a regular dense encoder would, and the second branch
-    produces high-resolution annotations.
+    A multi-scale dense encoder.
     """
 
     def __init__(
@@ -163,12 +161,6 @@ class Encoder(nn.Module):
             num_features, num_features // 2, kernel_size=1, stride=1, bias=False
         )
         self.trans2_pool = nn.AvgPool2d(kernel_size=2, stride=2)
-        self.multi_block = DenseBlock(
-            num_features,
-            growth_rate=growth_rate,
-            depth=multi_block_depth,
-            dropout_rate=dropout_rate,
-        )
         num_features = num_features // 2
         self.block3 = DenseBlock(
             num_features,
@@ -191,9 +183,8 @@ class Encoder(nn.Module):
         out_A = self.trans2_conv(out_before_trans2)
         out_A = self.trans2_pool(out_A)
         out_A = self.block3(out_A)
-        out_B = self.multi_block(out_before_trans2)
 
-        return out_A, out_B
+        return out_A
 
 
 class CoverageAttention(nn.Module):
@@ -301,15 +292,13 @@ class Maxout(nn.Module):
 class Decoder(nn.Module):
     """Decoder
 
-    GRU based Decoder which attends to the low- and high-resolution annotations to
-    create a LaTeX string.
+    GRU based Decoder which attends to the annotations to create a LaTeX string.
     """
 
     def __init__(
         self,
         num_classes,
         low_res_shape,
-        high_res_shape,
         hidden_size=256,
         embedding_dim=256,
         checkpoint=None,
@@ -320,8 +309,6 @@ class Decoder(nn.Module):
             num_classes (int): Number of symbol classes
             low_res_shape ((int, int, int)): Shape of the low resolution annotations
                 i.e. (C, W, H)
-            high_res_shape ((int, int, int)): Shape of the high resolution annotations
-                i.e. (C_prime, 2W, 2H)
             hidden_size (int, optional): Hidden size of the GRU [Default: 256]
             embedding_dim (int, optional): Dimension of the embedding [Default: 256]
             checkpoint (dict, optional): State dictionary to be loaded
@@ -329,8 +316,7 @@ class Decoder(nn.Module):
         """
         super(Decoder, self).__init__()
         C = low_res_shape[0]
-        C_prime = high_res_shape[0]
-        context_size = C + C_prime
+        context_size = C
         self.embedding = nn.Embedding(num_classes, embedding_dim)
         self.gru1 = nn.GRU(
             input_size=embedding_dim, hidden_size=hidden_size, batch_first=True
@@ -340,21 +326,12 @@ class Decoder(nn.Module):
         )
         # L = H * W
         low_res_attn_size = low_res_shape[1] * low_res_shape[2]
-        high_res_attn_size = high_res_shape[1] * high_res_shape[2]
         self.coverage_attn_low = CoverageAttention(
             C,
             decoder_conv_filters,
             attn_size=low_res_attn_size,
             kernel_size=(11, 11),
             padding=5,
-            device=device,
-        )
-        self.coverage_attn_high = CoverageAttention(
-            C_prime,
-            decoder_conv_filters,
-            attn_size=high_res_attn_size,
-            kernel_size=(7, 7),
-            padding=3,
             device=device,
         )
         self.W_o = nn.Parameter(torch.empty((num_classes, embedding_dim // 2)))
@@ -376,23 +353,20 @@ class Decoder(nn.Module):
 
     def reset(self, batch_size):
         self.coverage_attn_low.reset_alpha(batch_size)
-        self.coverage_attn_high.reset_alpha(batch_size)
 
     # Unsqueeze and squeeze are used to add and remove the seq_len dimension,
     # which is always 1 since only the previous symbol is provided, not a sequence.
     # The inputs that are multiplied by the weights are transposed to get
     # (m x batch_size) instead of (batch_size x m). The result of the
     # multiplication is tranposed back.
-    def forward(self, x, hidden, low_res, high_res):
+    def forward(self, x, hidden, low_res):
         embedded = self.embedding(x)
         pred, _ = self.gru1(embedded, hidden)
         # u_pred is computed here instead of in the coverage attention, because the
         # weight U_pred is shared and the coverage attention does not use pred for
         # anything else. This avoids computing it twice.
         u_pred = torch.matmul(self.U_pred, pred.squeeze(1).t()).t()
-        context_low = self.coverage_attn_low(low_res, u_pred)
-        context_high = self.coverage_attn_high(high_res, u_pred)
-        context = torch.cat((context_low, context_high), dim=1)
+        context = self.coverage_attn_low(low_res, u_pred)
         new_hidden, _ = self.gru2(context.unsqueeze(1), pred.transpose(0, 1))
         w_s = torch.matmul(self.W_s, new_hidden.squeeze(1).t()).t()
         w_c = torch.matmul(self.W_c, context.t()).t()

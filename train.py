@@ -21,7 +21,6 @@ from dataset import CrohmeDataset, START, PAD, collate_batch
 
 input_size = (128, 128)
 low_res_shape = (684, input_size[0] // 16, input_size[1] // 16)
-high_res_shape = (792, input_size[0] // 8, input_size[1] // 8)
 
 batch_size = 4
 num_workers = multiprocessing.cpu_count()
@@ -91,7 +90,7 @@ def run_epoch(
             batch_max_len = expected.size(1)
             # Replace -1 with the PAD token
             expected[expected == -1] = data_loader.dataset.token_to_id[PAD]
-            enc_low_res, enc_high_res = enc(input)
+            enc_low_res = enc(input)
             # Decoder needs to be reset, because the coverage attention (alpha)
             # only applies to the current image.
             dec.reset(curr_batch_size)
@@ -109,7 +108,7 @@ def run_epoch(
             for i in range(batch_max_len - 1):
                 previous = expected[:, i] if use_teacher_forcing else sequence[:, -1]
                 previous = previous.view(-1, 1)
-                out, hidden = dec(previous, hidden, enc_low_res, enc_high_res)
+                out, hidden = dec(previous, hidden, enc_low_res)
                 hidden = hidden.detach()
                 _, top1_id = torch.topk(out, 1)
                 sequence = torch.cat((sequence, top1_id), dim=1)
@@ -467,7 +466,6 @@ def main():
     dec = Decoder(
         len(train_dataset.id_to_token),
         low_res_shape,
-        high_res_shape,
         checkpoint=decoder_checkpoint,
         device=device,
     ).to(device)
