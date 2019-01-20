@@ -49,9 +49,7 @@ class Encoder(nn.Module):
         self.conv2 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
         self.norm2 = nn.BatchNorm2d(256)
         self.conv3 = nn.Conv2d(256, 512, kernel_size=3, padding=1)
-        self.norm3 = nn.BatchNorm2d(512)
         self.conv3_high = nn.Conv2d(256, 512, kernel_size=3, padding=1)
-        self.norm3_high = nn.BatchNorm2d(512)
         self.relu = nn.ReLU(inplace=True)
         self.max_pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
@@ -73,11 +71,7 @@ class Encoder(nn.Module):
         out_before_max = self.relu(out)
         out_low = self.max_pool(out_before_max)
         out_low = self.conv3(out_low)
-        out_low = self.norm3(out_low)
-        out_low = self.relu(out_low)
         out_high = self.conv3_high(out_before_max)
-        out_high = self.norm3_high(out_high)
-        out_high = self.relu(out_high)
 
         return out_low, out_high
 
