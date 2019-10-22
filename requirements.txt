@@ -6,5 +6,5 @@ torch==1.0.0
 scipy==1.2.0
 numpy==1.15.4
 torchvision==0.2.1
-Pillow==5.3.0
+Pillow==6.2.0
 tensorboardX==1.5
