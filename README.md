@@ -26,7 +26,7 @@ which means that images are used as input.
 
 The dataset has been converted to images of size `256x256` and the ground truth
 has been extracted as well. The converted dataset can be found at
-[Floydhub - crohme-png][crohme-png].
+[Kaggle - crohme-png][crohme-png].
 
 The data needs to be in the `data/` directory and a `tokens.tsv` file defines
 the available tokens separated by tabs. Training and validation sets are defined
@@ -76,6 +76,6 @@ python evaluate.py -d 2014 2016 --beam-width 5 -c checkpoints/example-0022.pth
 
 [arxiv-zhang18]: https://arxiv.org/pdf/1801.03530.pdf
 [crohme]: https://www.isical.ac.in/~crohme/
-[crohme-png]: https://www.floydhub.com/jungomi/datasets/crohme-png
+[crohme-png]: https://kaggle.com/dataset/3a6d371ee185e037fbc0d4eba075053aeaa54077bda6de3ed1b8f988891fa9ea
 [pytorch]: https://pytorch.org/
 [pytorch-started]: https://pytorch.org/get-started/locally/
