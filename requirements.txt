@@ -3,7 +3,7 @@ opencv_python==4.2.0.32
 editdistance==0.5.2
 tqdm==4.28.1
 torch==1.0.0
-scipy==1.2.0
+scipy==1.10.0
 numpy==1.21.0
 torchvision==0.2.1
 Pillow==9.0.0
